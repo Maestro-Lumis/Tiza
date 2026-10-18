@@ -1,0 +1,791 @@
+<title>Tiza</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@500&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&family=Literata:opsz,wght@7..72,400;7..72,500&display=swap">
+<style>
+/* Layout: one-screen app. Top bar, then either the board (paper canvas, chalk ledge with tools on top and the lesson timeline on its front face) or the learning map (islands of topics). Light = tutor's paper notebook, dark = school blackboard with chalk. */
+:root{
+  --bg:#ECE5D5; --paper:#F6F1E5; --grid:#E3DAC6; --card:#FFFCF4; --line:#D7CDB7;
+  --ink:#25231F; --ink-2:#6B6559; --teacher:#AE4F29; --student:#16705D;
+  --sticky:#F1E2A4; --sticky-ink:#4A3F12; --shade:rgba(37,35,31,.10);
+  --blue:#33589E; --wood:#D6C4A1; --wood-top:#E4D5B7; --wood-dk:#B8A27A; --stick:#B98A55;
+  --felt:#55524B; --ruler:#E8CF73; --ruler-ink:#4A3D12; --sticky-edge:#D3BE73; --dust:rgba(255,255,255,.7);
+  --f-ui:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-serif:"Literata",Georgia,"Times New Roman",serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  --f-hand:"Caveat","Segoe Print","Comic Sans MS",cursive;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#151C19; --paper:#1E2925; --grid:#29372F; --card:#25322D; --line:#374940;
+  --ink:#EAE6DA; --ink-2:#A0AEA5; --teacher:#EE9A72; --student:#7BCFB9;
+  --sticky:#4A4428; --sticky-ink:#F2E7B8; --shade:rgba(0,0,0,.4);
+  --blue:#94B2EE; --wood:#2D2821; --wood-top:#3A3329; --wood-dk:#1C1915; --stick:#9C7448;
+  --felt:#8D8A80; --ruler:#BFA857; --ruler-ink:#2E2610; --sticky-edge:#6A6238; --dust:rgba(234,230,218,.35); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#151C19; --paper:#1E2925; --grid:#29372F; --card:#25322D; --line:#374940;
+  --ink:#EAE6DA; --ink-2:#A0AEA5; --teacher:#EE9A72; --student:#7BCFB9;
+  --sticky:#4A4428; --sticky-ink:#F2E7B8; --shade:rgba(0,0,0,.4);
+  --blue:#94B2EE; --wood:#2D2821; --wood-top:#3A3329; --wood-dk:#1C1915; --stick:#9C7448;
+  --felt:#8D8A80; --ruler:#BFA857; --ruler-ink:#2E2610; --sticky-edge:#6A6238; --dust:rgba(234,230,218,.35); color-scheme:dark}
+
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-ui);font-size:14px;overflow:hidden}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--teacher);outline-offset:2px}
+.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.mono{font-family:var(--f-mono);font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums}
+
+.app{height:100%;display:flex;flex-direction:column}
+.topbar{display:flex;align-items:center;gap:10px 14px;padding:8px 16px;background:var(--card);border-bottom:1px solid var(--line);flex-wrap:wrap;position:relative;z-index:5}
+.logo{display:flex;flex-direction:column;line-height:1;font-family:var(--f-serif);font-size:23px;font-weight:500;letter-spacing:-.01em}
+.logo svg{width:44px;height:6px;margin-top:2px;stroke:var(--teacher);stroke-width:2.2;fill:none;stroke-linecap:round}
+.seg{display:flex;background:var(--bg);border-radius:9px;padding:3px;gap:2px}
+.seg button{border:0;background:none;padding:5px 11px;border-radius:7px;font-size:13px;font-weight:500;color:var(--ink-2);cursor:pointer;display:flex;gap:6px;align-items:center;white-space:nowrap}
+.seg button[aria-pressed="true"]{background:var(--card);color:var(--ink);box-shadow:0 1px 2px var(--shade)}
+.crumb{font-family:var(--f-mono);font-size:12px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+.crumb b{font-weight:500;color:var(--ink)}
+.grow{flex:1}
+.who{display:flex;align-items:center;gap:8px}
+.who-l{font-size:12px;color:var(--ink-2)}
+.avs{display:flex}
+.av{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:500;color:var(--card);border:2px solid var(--card)}
+.av+.av{margin-left:-7px}
+.btn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border:1px solid var(--line);background:var(--card);border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap}
+.btn:hover{border-color:var(--ink-2)}
+.btn.on{background:var(--teacher);border-color:var(--teacher);color:var(--card)}
+.app[data-screen="map"] .board-only{display:none!important}
+.app[data-role="student"] .teacher-only{display:none!important}
+
+.screen{flex:1;min-height:0;position:relative}
+
+/* board */
+#vp{position:absolute;inset:0;overflow:hidden;background-color:var(--paper);background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);touch-action:none}
+#vp.t-pen,#vp.t-laser{cursor:crosshair}
+#vp.t-add{cursor:copy}
+#vp.t-erase{cursor:cell}
+#vp.panning{cursor:grabbing}
+#board.leading #vp{box-shadow:inset 0 0 0 3px var(--teacher)}
+#world{position:absolute;left:0;top:0;transform-origin:0 0}
+#ink{position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible;pointer-events:none}
+#ink path{fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-width:2.4}
+.s-ink{stroke:var(--ink)} .s-teacher{stroke:var(--teacher)} .s-blue{stroke:var(--blue)} .s-student{stroke:var(--student)}
+#laser{position:absolute;inset:0;pointer-events:none}
+
+.blk{position:absolute;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 13px 12px;user-select:none;-webkit-user-select:none;cursor:grab}
+.blk.drag{cursor:grabbing;box-shadow:0 10px 28px var(--shade);z-index:3}
+.lbl{font-family:var(--f-mono);font-weight:500;font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-2);margin-bottom:6px;display:flex;gap:6px;align-items:center}
+.tag{letter-spacing:.02em;text-transform:none;color:var(--student);border:1px solid currentColor;border-radius:4px;padding:0 4px}
+.k-sticky{background:var(--sticky);border-color:transparent;color:var(--sticky-ink);font-size:15px;line-height:1.45;border-radius:3px;transform:rotate(-.7deg);box-shadow:0 2px 6px var(--shade)}
+.k-sticky .txt{white-space:pre-wrap}
+.fx{font-family:var(--f-serif);font-size:21px;text-align:center;padding:2px 0;white-space:nowrap}
+.frac{display:inline-flex;flex-direction:column;vertical-align:middle;text-align:center;margin:0 3px;font-size:.92em}
+.frac>span:first-child{border-bottom:1.5px solid currentColor;padding:0 5px 1px}
+.k-code pre{margin:0;font:13px/1.6 var(--f-mono);white-space:pre;overflow:hidden}
+.kw{color:var(--teacher)} .num{color:var(--student)} .com{color:var(--ink-2);font-style:italic}
+.k-ink{background:transparent;border:1px dashed transparent;padding:4px 8px}
+.k-ink:hover{border-color:var(--line)}
+.hand{font-family:var(--f-hand);font-size:27px;line-height:1.12;white-space:pre-wrap}
+.by-student .hand{color:var(--student)}
+.k-card{text-align:center}
+.face{font-family:var(--f-serif);font-size:25px;padding:8px 0 4px}
+.k-card.back .face{font-family:var(--f-ui);font-size:15px;line-height:1.4;padding:10px 0 6px}
+.k-card .hint{font-family:var(--f-mono);font-size:11px;color:var(--ink-2)}
+.k-hidden{border-style:dashed;border-width:1.5px}
+.ans{font-family:var(--f-serif);font-size:18px;line-height:1.4;white-space:pre-wrap}
+.ans.dim{color:var(--ink-2)}
+.ans.blur{filter:blur(7px)}
+.k-hidden.open{border-style:solid;border-color:var(--student)}
+.reveal{margin-top:9px;height:28px;font-size:12px}
+[contenteditable="true"]{outline:2px solid var(--teacher);outline-offset:5px;border-radius:2px;cursor:text;user-select:text;-webkit-user-select:text}
+
+#peer{position:absolute;left:0;top:0;pointer-events:none;transform-origin:0 0;transition:left 1.6s cubic-bezier(.4,0,.2,1),top 1.6s cubic-bezier(.4,0,.2,1);z-index:4}
+#peer svg{width:20px;height:20px;display:block}
+#peer .nm{position:absolute;left:14px;top:16px;font-size:11px;font-weight:500;color:var(--card);padding:2px 7px;border-radius:5px;white-space:nowrap}
+
+/* chalk tray: objects lie on the ledge, the picked one lifts; the ledge's front face carries the lesson timeline */
+.tray{position:absolute;left:0;right:0;bottom:0;z-index:4;pointer-events:none}
+.shelf{position:relative;z-index:2;margin-bottom:-11px;display:flex;align-items:flex-end;gap:14px;padding:34px 24px 0;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+.shelf::-webkit-scrollbar{display:none}
+.obj{pointer-events:auto;border:0;background:none;padding:0 2px 3px;cursor:pointer;position:relative;flex:none;display:flex;align-items:flex-end;transition:transform .18s cubic-bezier(.3,.7,.4,1.3),filter .18s}
+.obj svg{display:block;overflow:visible}
+.obj:hover{transform:translateY(-4px)}
+.obj[aria-pressed="true"]{transform:translateY(-13px);filter:drop-shadow(0 9px 5px var(--shade))}
+.obj .cap{position:absolute;left:50%;bottom:100%;transform:translateX(-50%);margin-bottom:5px;font-family:var(--f-mono);font-size:10.5px;color:var(--ink);white-space:nowrap;opacity:0;transition:opacity .15s;pointer-events:none}
+.obj:hover .cap,.obj[aria-pressed="true"] .cap,.obj:focus-visible .cap{opacity:1}
+.obj:focus-visible{outline:none}
+.obj:focus-visible>svg,.obj:focus-visible>.tile{outline:2px solid var(--teacher);outline-offset:3px}
+.grp{display:flex;align-items:flex-end;gap:8px;flex:none}
+.tile{width:38px;height:30px;background:var(--card);border:1px solid var(--line);border-radius:3px;display:grid;place-items:center;color:var(--ink);font-size:14px;line-height:1;box-shadow:2px 2px 0 var(--wood-dk)}
+.tile .ic{width:16px;height:16px}
+.tile.hand{font-family:var(--f-hand);font-size:20px}
+.tile.ser{font-family:var(--f-serif);font-size:19px}
+.tile.mono{font-family:var(--f-mono);font-size:12px;color:var(--ink)}
+.tile.dashed{border-style:dashed}
+.ledge{position:relative;pointer-events:auto;background:var(--wood);padding:17px 16px 10px;padding-bottom:calc(10px + env(safe-area-inset-bottom,0px))}
+.ledge::before{content:"";position:absolute;left:0;right:0;top:0;height:11px;background:var(--wood-top);border-bottom:1px solid var(--wood-dk);
+  background-image:radial-gradient(circle at 12% 40%,var(--dust) 0 1px,transparent 1.5px),radial-gradient(circle at 31% 65%,var(--dust) 0 1px,transparent 1.5px),radial-gradient(circle at 57% 35%,var(--dust) 0 1px,transparent 1.5px),radial-gradient(circle at 83% 60%,var(--dust) 0 1px,transparent 1.5px)}
+
+.zoom{position:absolute;right:16px;top:16px;display:flex;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:3px;z-index:4}
+.zoom button{width:30px;height:30px;border:0;background:none;border-radius:7px;display:grid;place-items:center;cursor:pointer;color:var(--ink-2)}
+.zoom button:hover{background:var(--bg);color:var(--ink)}
+.zoom .mono{min-width:44px;text-align:center}
+
+.banner{position:absolute;top:16px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:10px;background:var(--teacher);color:var(--card);padding:6px 6px 6px 14px;border-radius:10px;font-size:13px;font-weight:500;z-index:4;max-width:calc(100% - 32px)}
+.banner .btn{height:28px;background:transparent;color:var(--card);border-color:var(--card)}
+
+.pastbar{position:absolute;left:50%;bottom:calc(100% + 14px);transform:translateX(-50%);pointer-events:auto;display:flex;gap:8px 12px;align-items:center;background:var(--ink);color:var(--card);padding:6px 6px 6px 14px;border-radius:10px;font-size:13px;flex-wrap:wrap;width:max-content;max-width:calc(100% - 32px)}
+.pastbar .btn{height:28px;background:transparent;color:var(--card);border-color:var(--ink-2)}
+.timeline{display:flex;align-items:center;gap:8px 14px;flex-wrap:wrap}
+.timeline .mono{color:var(--ink)}
+.timeline .btn{background:transparent;border-color:var(--wood-dk)}
+.tl-track{flex:1 1 300px;display:flex;align-items:center;gap:10px;min-width:0}
+.tl-track input{flex:1;min-width:80px;accent-color:var(--ink)}
+.play{width:32px;height:32px;border-radius:50%;border:1px solid var(--wood-dk);background:var(--wood-top);display:grid;place-items:center;cursor:pointer;flex:none}
+.play:hover{border-color:var(--ink-2)}
+.live{display:inline-flex;align-items:center;gap:6px;font-family:var(--f-mono);font-size:11px;color:var(--teacher);text-transform:uppercase;letter-spacing:.08em}
+.live::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.chip{height:28px;padding:0 10px;border-radius:14px;border:1px solid var(--wood-dk);background:none;font-size:12px;color:var(--ink-2);display:inline-flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap}
+.chip .ic{width:14px;height:14px}
+.chip[aria-pressed="true"]{border-color:var(--teacher);color:var(--teacher);font-weight:500}
+.chip .mono{font-size:11px}
+
+.toast{position:fixed;left:50%;top:76px;transform:translate(-50%,-8px);background:var(--ink);color:var(--card);padding:8px 14px;border-radius:9px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:20;max-width:calc(100% - 32px);text-align:center}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+
+/* map */
+#map{overflow:auto}
+.map-in{padding-block:28px 40px;padding-inline:16px;max-width:1040px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+.map-head{display:flex;flex-wrap:wrap;gap:14px 28px;align-items:flex-end;justify-content:space-between}
+.map-head h1{font-family:var(--f-serif);font-weight:500;font-size:30px;line-height:1.15;margin:0;text-wrap:balance}
+.sum{color:var(--ink-2);margin:6px 0 0;font-size:14px;line-height:1.5;max-width:60ch}
+.sum b{color:var(--ink);font-weight:500}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--ink-2)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.dot{width:10px;height:10px;border-radius:50%;flex:none;border:1.5px solid var(--ink-2);background:transparent}
+.dot.done{background:var(--ink);border-color:var(--ink)}
+.dot.now{background:var(--teacher);border-color:var(--teacher)}
+.dot.later{border-style:dashed}
+.map-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:14px;background:var(--bg)}
+.map-world{position:relative;width:980px;height:560px}
+.map-world svg{position:absolute;inset:0}
+.node{position:absolute;transform:translate(-50%,-50%);background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 12px 9px;min-width:158px;cursor:pointer;text-align:left;display:flex;gap:9px;align-items:flex-start;transition:border-color .15s,box-shadow .15s}
+.node:hover{border-color:var(--ink-2);box-shadow:0 6px 18px var(--shade)}
+.node .dot{margin-top:5px}
+.node .t{font-family:var(--f-serif);font-size:15px;font-weight:500;line-height:1.3}
+.node .m{font-family:var(--f-mono);font-size:11px;color:var(--ink-2);margin-top:2px}
+.node.st-now{border:2px solid var(--teacher)}
+.node.st-now .m{color:var(--teacher)}
+.node.st-later{border-style:dashed;background:var(--paper)}
+.node.st-later .t{color:var(--ink-2)}
+
+@media (max-width:720px){
+  .hide-sm{display:none!important}
+  .btn .bl{display:none}
+  .btn{padding:0 9px}
+  .crumb{order:10;flex-basis:100%}
+  .shelf{pointer-events:auto;padding-inline:16px;gap:10px}
+  .banner{top:64px}
+  .map-head h1{font-size:24px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-pointer" viewBox="0 0 24 24"><path d="M6 3.5l12.5 7-5.6 1.6-2.3 5.6z"/></symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24"><path d="M4.5 19.5l3.8-.9L19 7.9a1.9 1.9 0 000-2.7l-.2-.2a1.9 1.9 0 00-2.7 0L5.4 15.7z"/><path d="M14.5 6.5l3 3"/></symbol>
+  <symbol id="i-hand" viewBox="0 0 24 24"><path d="M3.5 17c2.5-5 4.5-9 6.2-9 1.9 0-.6 8 1.6 8 1.8 0 2.6-4.6 5-4.6 1.6 0 1.7 2.1 4.2 2.1"/></symbol>
+  <symbol id="i-note" viewBox="0 0 24 24"><path d="M5 4h14v10l-6 6H5z"/><path d="M13 20v-6h6"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="M9 7l-5 5 5 5M15 7l5 5-5 5"/></symbol>
+  <symbol id="i-card" viewBox="0 0 24 24"><rect x="3" y="7" width="13" height="13" rx="2"/><path d="M8 4h11a2 2 0 012 2v10"/></symbol>
+  <symbol id="i-eyeoff" viewBox="0 0 24 24"><path d="M3 3l18 18"/><path d="M10.6 6.1A10 10 0 0112 6c6 0 9.5 6 9.5 6a15 15 0 01-2.6 3.2M6.5 6.6C4 8.2 2.5 12 2.5 12S6 18 12 18a9 9 0 004.4-1.1"/><path d="M9.9 10a3 3 0 004.1 4.1"/></symbol>
+  <symbol id="i-laser" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.6"/><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 6 12 6s9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z"/><circle cx="12" cy="12" r="2.8"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5.5v13M16 5.5v13" stroke-width="3"/></symbol>
+  <symbol id="i-branch" viewBox="0 0 24 24"><circle cx="6" cy="5.5" r="2"/><circle cx="6" cy="18.5" r="2"/><circle cx="18" cy="8" r="2"/><path d="M6 7.5v9M18 10c0 4-5 4.5-10.6 7.4"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="i-fit" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></symbol>
+  <symbol id="i-map" viewBox="0 0 24 24"><path d="M3 6.5l6-2.5 6 2.5 6-2.5v13.5L15 20l-6-2.5L3 20z"/><path d="M9 4v13.5M15 6.5V20"/></symbol>
+  <symbol id="i-board" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="1.5"/><path d="M8 21l4-4 4 4"/></symbol>
+  <symbol id="i-cursor" viewBox="0 0 24 24"><path d="M4 3l15 7.5-6.3 1.8L9.9 19z" stroke-width="1.4"/></symbol>
+</svg>
+
+<div class="app" id="app" data-screen="board" data-role="teacher">
+  <header class="topbar">
+    <div class="logo" aria-label="Tiza">tiza<svg viewBox="0 0 44 6" aria-hidden="true"><path d="M2 4c6-2 12-2.5 18-1.5s14 .5 22-1.5"/></svg></div>
+    <div class="seg" role="group" aria-label="Экран">
+      <button id="tab-map" data-screen="map" aria-pressed="false"><svg class="ic"><use href="#i-map"/></svg>Карта</button>
+      <button id="tab-board" data-screen="board" aria-pressed="true"><svg class="ic"><use href="#i-board"/></svg>Доска</button>
+    </div>
+    <div class="crumb board-only" id="crumb"></div>
+    <div class="grow"></div>
+    <div class="who">
+      <span class="who-l hide-sm">Смотреть как</span>
+      <div class="seg" role="group" aria-label="Роль в прототипе">
+        <button id="role-t" data-role="teacher" aria-pressed="true">Учитель</button>
+        <button id="role-s" data-role="student" aria-pressed="false">Ученик</button>
+      </div>
+    </div>
+    <div class="avs board-only" id="avs"></div>
+    <button class="btn board-only teacher-only" id="follow" title="Экран ученика будет следовать за тобой"><svg class="ic"><use href="#i-eye"/></svg><span class="bl">Смотри сюда</span></button>
+    <button class="btn board-only teacher-only" id="share" title="Скопировать ссылку для ученика"><svg class="ic"><use href="#i-link"/></svg><span class="bl">Ссылка ученику</span></button>
+  </header>
+
+  <section class="screen" id="board">
+    <div id="vp">
+      <div id="world">
+        <svg id="ink" aria-hidden="true"></svg>
+        <div id="blocks"></div>
+        <div id="peer" aria-hidden="true"><svg viewBox="0 0 24 24"><use href="#i-cursor"/></svg><span class="nm"></span></div>
+      </div>
+      <canvas id="laser" aria-hidden="true"></canvas>
+    </div>
+
+
+    <div class="zoom">
+      <button id="z-out" title="Отдалить" aria-label="Отдалить"><svg class="ic"><use href="#i-minus"/></svg></button>
+      <span class="mono" id="z-val">100%</span>
+      <button id="z-in" title="Приблизить" aria-label="Приблизить"><svg class="ic"><use href="#i-plus"/></svg></button>
+      <button id="z-fit" title="Показать всю доску" aria-label="Показать всю доску"><svg class="ic"><use href="#i-fit"/></svg></button>
+    </div>
+
+    <div class="banner" id="banner" hidden>Учитель показывает: твой экран следует за ним <button class="btn" id="unfollow">Смотреть самому</button></div>
+
+    <div class="tray" id="tray">
+      <div class="pastbar" id="pastbar" hidden>
+        <span id="past-t">Запись урока</span>
+        <button class="btn" id="past-branch"><svg class="ic"><use href="#i-branch"/></svg>Ветка отсюда</button>
+        <button class="btn" id="past-live">Вернуться в эфир</button>
+      </div>
+      <div class="shelf" id="shelf" role="toolbar" aria-label="Инструменты на полке">
+        <button class="obj" data-tool="select" aria-label="Указка: выбрать и двигать (V)" aria-pressed="true"><span class="cap">указка · двигать</span>
+          <svg width="112" height="14" viewBox="0 0 112 14" aria-hidden="true"><path d="M4 6.3L102 3a4 4 0 010 8L4 7.7z" style="fill:var(--stick)"/><rect x="84" y="3.4" width="9" height="7.2" style="fill:var(--wood-dk)"/><circle cx="4" cy="7" r="2" style="fill:var(--ink)"/></svg></button>
+        <div class="grp">
+          <button class="obj" data-tool="pen" data-color="ink" aria-label="Мел, графит (1)" aria-pressed="false"><span class="cap">мел · графит</span>
+            <svg width="54" height="16" viewBox="0 0 54 16" aria-hidden="true"><rect x="1" y="2" width="52" height="12" rx="5" style="fill:var(--ink)"/><path d="M7 5.5h38" stroke="#fff" stroke-opacity=".25" stroke-width="1.5" stroke-linecap="round"/></svg></button>
+          <button class="obj" data-tool="pen" data-color="teacher" aria-label="Мел, терракота (2)" aria-pressed="false"><span class="cap">мел · терракота</span>
+            <svg width="42" height="16" viewBox="0 0 42 16" aria-hidden="true"><rect x="1" y="2" width="40" height="12" rx="5" style="fill:var(--teacher)"/><path d="M7 5.5h26" stroke="#fff" stroke-opacity=".3" stroke-width="1.5" stroke-linecap="round"/></svg></button>
+          <button class="obj" data-tool="pen" data-color="blue" aria-label="Мел, синий (3)" aria-pressed="false"><span class="cap">мел · синий</span>
+            <svg width="48" height="16" viewBox="0 0 48 16" aria-hidden="true"><rect x="1" y="2" width="46" height="12" rx="5" style="fill:var(--blue)"/><path d="M7 5.5h32" stroke="#fff" stroke-opacity=".3" stroke-width="1.5" stroke-linecap="round"/></svg></button>
+        </div>
+        <button class="obj" data-tool="erase" aria-label="Губка: стереть (E)" aria-pressed="false"><span class="cap">губка · стереть</span>
+          <svg width="62" height="26" viewBox="0 0 62 26" aria-hidden="true"><rect x="1" y="1" width="60" height="15" rx="3" style="fill:var(--stick)"/><rect x="1" y="14" width="60" height="11" rx="2" style="fill:var(--felt)"/></svg></button>
+        <button class="obj" data-tool="line" aria-label="Линейка: прямая линия (R)" aria-pressed="false"><span class="cap">линейка · прямая</span>
+          <svg width="120" height="18" viewBox="0 0 120 18" aria-hidden="true"><rect x="1" y="1" width="118" height="16" rx="1.5" style="fill:var(--ruler)"/><path d="M6 1v7M14 1v4M22 1v4M30 1v4M38 1v7M46 1v4M54 1v4M62 1v4M70 1v7M78 1v4M86 1v4M94 1v4M102 1v7M110 1v4" style="stroke:var(--ruler-ink)" stroke-width="1"/></svg></button>
+        <button class="obj" data-tool="laser" aria-label="Лазерная указка (L)" aria-pressed="false"><span class="cap">лазер</span>
+          <svg width="70" height="14" viewBox="0 0 70 14" aria-hidden="true"><rect x="6" y="2" width="63" height="10" rx="5" style="fill:var(--ink)"/><rect x="50" y="4.5" width="8" height="5" rx="1.5" style="fill:var(--teacher)"/><circle cx="4" cy="7" r="3.2" style="fill:var(--teacher)"/></svg></button>
+        <button class="obj" data-tool="sticky" aria-label="Стикеры (N)" aria-pressed="false"><span class="cap">стикеры</span>
+          <svg width="40" height="34" viewBox="0 0 40 34" aria-hidden="true"><rect x="5" y="2" width="33" height="29" rx="1" style="fill:var(--sticky);stroke:var(--sticky-edge)"/><rect x="3" y="3" width="33" height="29" rx="1" style="fill:var(--sticky);stroke:var(--sticky-edge)"/><rect x="1" y="4" width="33" height="29" rx="1" style="fill:var(--sticky);stroke:var(--sticky-edge)"/></svg></button>
+        <div class="grp">
+          <button class="obj" data-tool="ink" aria-label="Текст от руки (T)" aria-pressed="false"><span class="cap">от руки</span><span class="tile hand" aria-hidden="true">Aa</span></button>
+          <button class="obj" data-tool="formula" aria-label="Формула (F)" aria-pressed="false"><span class="cap">формула</span><span class="tile ser" aria-hidden="true">∑</span></button>
+          <button class="obj" data-tool="code" aria-label="Код (C)" aria-pressed="false"><span class="cap">код</span><span class="tile mono" aria-hidden="true">&lt;/&gt;</span></button>
+          <button class="obj" data-tool="card" aria-label="Карточка слова (K)" aria-pressed="false"><span class="cap">карточка слова</span><span class="tile ser" aria-hidden="true" style="font-size:14px">es</span></button>
+          <button class="obj teacher-only" data-tool="hidden" aria-label="Скрытый ответ (H)" aria-pressed="false"><span class="cap">скрытый ответ</span><span class="tile dashed" aria-hidden="true"><svg class="ic"><use href="#i-eyeoff"/></svg></span></button>
+        </div>
+      </div>
+      <div class="ledge">
+      <div class="timeline">
+        <div class="tl-track">
+          <button class="play" id="play" aria-label="Проиграть запись урока"><svg class="ic"><use href="#i-play"/></svg></button>
+          <span class="mono" id="t-cur">00:00</span>
+          <input type="range" id="tl" min="0" max="1" step="1" value="1" aria-label="Перемотка урока">
+          <span class="mono" id="t-end">00:00</span>
+          <span class="live" id="live">эфир</span>
+        </div>
+        <div class="chips" id="chips"></div>
+        <button class="btn" id="branch"><svg class="ic"><use href="#i-branch"/></svg><span class="bl">Ветка</span></button>
+      </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="screen" id="map" hidden>
+    <div class="map-in">
+      <div class="map-head">
+        <div>
+          <h1 id="map-title">Карта обучения</h1>
+          <p class="sum" id="map-sum"></p>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px;align-items:flex-start">
+          <div class="seg" role="group" aria-label="Ученик" id="students"></div>
+          <div class="legend"><span><i class="dot done"></i>Пройдено</span><span><i class="dot now"></i>Сейчас</span><span><i class="dot"></i>Следующая</span><span><i class="dot later"></i>Впереди</span></div>
+        </div>
+      </div>
+      <div class="map-scroll"><div class="map-world" id="map-world"></div></div>
+      <p class="mono" style="margin:0">Нажми на тему, чтобы открыть её доску. Каждая доска хранит запись урока и ветки решений.</p>
+    </div>
+  </section>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const fmt = s => { s = Math.round(s); return String(Math.floor(s/60)).padStart(2,'0') + ':' + String(s%60).padStart(2,'0'); };
+const icon = id => `<svg class="ic"><use href="#${id}"/></svg>`;
+
+/* ---------- data ---------- */
+const STUDENTS = {
+  anya: { name:'Аня', next:'сб, 18 окт, 17:00', islands:[
+    { name:'Математика', subject:'math', c:[255,270], r:[225,205], seed:3, topics:[
+      { id:'m1', title:'Линейные уравнения', st:'done', date:'3 окт', p:[160,140] },
+      { id:'m2', title:'Квадратные уравнения', st:'now', date:'17 окт', p:[335,215], seed:'quad' },
+      { id:'m3', title:'Теорема Виета', st:'next', p:[180,320] },
+      { id:'m4', title:'Неравенства', st:'later', p:[340,410] } ]},
+    { name:'Испанский', subject:'es', c:[725,265], r:[220,210], seed:11, topics:[
+      { id:'e1', title:'Алфавит и звуки', st:'done', date:'19 сен', p:[640,130] },
+      { id:'e2', title:'Ser и estar', st:'done', date:'10 окт', p:[810,205], seed:'serestar' },
+      { id:'e3', title:'Presente: глаголы на -ar', st:'now', date:'17 окт', p:[650,310] },
+      { id:'e4', title:'Pretérito perfecto', st:'later', p:[815,405] } ]} ]},
+  misha: { name:'Миша', next:'пн, 20 окт, 19:30', islands:[
+    { name:'Информатика', subject:'code', c:[255,270], r:[225,205], seed:5, topics:[
+      { id:'i1', title:'Переменные и типы', st:'done', date:'26 сен', p:[165,135] },
+      { id:'i2', title:'Циклы', st:'done', date:'6 окт', p:[335,210] },
+      { id:'i3', title:'Функции', st:'now', date:'16 окт', p:[175,315] },
+      { id:'i4', title:'Рекурсия', st:'later', p:[335,410] } ]},
+    { name:'Английский', subject:'en', c:[725,265], r:[210,185], seed:7, topics:[
+      { id:'n1', title:'Present Simple', st:'done', date:'30 сен', p:[645,160] },
+      { id:'n2', title:'Present Perfect', st:'now', date:'14 окт', p:[805,250] },
+      { id:'n3', title:'Conditionals', st:'later', p:[660,360] } ]} ]}
+};
+const BRANCH_NAMES = { quad:['Через теорему Виета','Решение Ани','Графический способ'] };
+
+/* ---------- seeds ---------- */
+const wave = (x,y,w,a=4) => Array.from({length:25},(_,i)=>[x+w*i/24, y+Math.sin(i/24*Math.PI*3)*a]);
+const ring = (cx,cy,rx,ry) => Array.from({length:34},(_,i)=>{const a=-2.2+i/33*Math.PI*2.15; return [cx+Math.cos(a)*rx*(1+i*.002), cy+Math.sin(a)*ry]});
+const line = (x1,y1,x2,y2,bend=0) => Array.from({length:13},(_,i)=>{const t=i/12; return [x1+(x2-x1)*t, y1+(y2-y1)*t - Math.sin(t*Math.PI)*bend]});
+
+function seedFor(topic, subject){
+  const T = 'teacher', S = 'student';
+  let t = 0; const ev = []; const at = (dt, e) => { t += dt; e.t = t; ev.push(e); };
+  const add = (dt, b) => at(dt, { type:'add', b });
+  if (topic.seed === 'quad'){
+    add(30,  { id:'q1', kind:'sticky', x:-430, y:-150, w:210, who:T, text:'Квадратное уравнение:\nax² + bx + c = 0, a ≠ 0' });
+    add(110, { id:'q2', kind:'formula', x:-90, y:-160, w:290, who:T, text:'D = b² − 4ac' });
+    add(150, { id:'q3', kind:'formula', x:-90, y:-50, w:290, who:T, text:'x₁,₂ = (−b ± √D) / 2a' });
+    at(40,   { type:'stroke', who:T, pts:ring(55,0,182,64) });
+    add(250, { id:'q4', kind:'ink', x:-440, y:40, who:S, text:'x² − 5x + 6 = 0\na = 1, b = −5, c = 6' });
+    add(180, { id:'q5', kind:'ink', x:-440, y:160, who:S, text:'D = 25 − 24 = 1' });
+    at(30,   { type:'stroke', who:S, pts:wave(-430,205,170,3) });
+    at(60,   { type:'stroke', who:T, pts:line(-250,180,-95,140,30) });
+    at(4,    { type:'stroke', who:T, pts:[[-110,128],[-95,140],[-113,150]] });
+    add(320, { id:'q6', kind:'hidden', x:-90, y:105, w:240, who:T, text:'x₁ = 3,  x₂ = 2' });
+    add(280, { id:'q7', kind:'code', x:270, y:-160, w:320, who:T, text:'def roots(a, b, c):\n    d = b*b - 4*a*c\n    if d < 0:\n        return []  # нет корней\n    return [(-b + d**0.5) / (2*a),\n            (-b - d**0.5) / (2*a)]\n\nprint(roots(1, -5, 6))' });
+    add(260, { id:'q8', kind:'sticky', x:300, y:110, w:200, who:T, text:'Домашка: № 214, 216, 219\nПроверить через код ↑' });
+    at(120,  { type:'stroke', who:S, pts:[[168,150],[178,164],[200,132]] });
+    return ev;
+  }
+  if (topic.seed === 'serestar'){
+    add(40,  { id:'s1', kind:'sticky', x:-430, y:-110, w:230, who:T, text:'Ser: кто ты, откуда, профессия.\nEstar: состояние и место.' });
+    add(120, { id:'s2', kind:'card', x:-130, y:-130, w:180, who:T, lang:'es', front:'ser', back:'быть (постоянное)' });
+    add(60,  { id:'s3', kind:'card', x:80, y:-130, w:180, who:T, lang:'es', front:'estar', back:'быть (состояние, место)' });
+    add(300, { id:'s4', kind:'ink', x:-130, y:40, who:S, text:'Soy de Moscú.\nEstoy en casa.' });
+    at(40,   { type:'stroke', who:T, pts:wave(-120,140,200,3) });
+    add(200, { id:'s5', kind:'hidden', x:120, y:40, w:250, who:T, text:'Estoy cansada.\nЯ устала: состояние → estar' });
+    return ev;
+  }
+  add(20, { id:topic.id+'-s', kind:'sticky', x:-320, y:-70, w:220, who:T, text: topic.st==='later' ? 'План урока: ' + topic.title + '\nДоска пока пустая' : 'Тема: ' + topic.title });
+  if (topic.st === 'later') return ev;
+  if (subject==='math') add(90, { id:topic.id+'-f', kind:'formula', x:-40, y:-80, w:260, who:T, text:'x = −b / a' });
+  if (subject==='code') add(90, { id:topic.id+'-c', kind:'code', x:-40, y:-90, w:300, who:T, text:'for i in range(5):\n    print(i * i)  # квадраты' });
+  if (subject==='es') add(90, { id:topic.id+'-k', kind:'card', x:-40, y:-90, w:180, who:T, lang:'es', front:'hablar', back:'говорить' });
+  if (subject==='en') add(90, { id:topic.id+'-k', kind:'card', x:-40, y:-90, w:200, who:T, lang:'en', front:'I have seen it', back:'я это видел(а): результат важен сейчас' });
+  add(240, { id:topic.id+'-i', kind:'ink', x:-300, y:70, who:S, text:'Мой вариант…' });
+  return ev;
+}
+
+/* ---------- state ---------- */
+let student = 'anya', role = 'teacher', tool = 'select', screen = 'board', leading = false;
+let cam = { x:0, y:0, z:1 };
+const boards = {}; let boardId = null; let cur = null; const flipped = new Set();
+let uid = 0; const nid = () => 'n' + (++uid);
+
+function topicById(id){ for (const k in STUDENTS) for (const isl of STUDENTS[k].islands) for (const t of isl.topics) if (t.id===id) return { t, isl, st:k }; }
+const B = () => boards[boardId];
+const br = () => B().branches.find(x => x.id === B().cur);
+const live = () => B().pos == null;
+const evs = () => live() ? br().events : br().events.slice(0, B().pos);
+
+function stateOf(list){
+  const blocks = new Map(), rev = new Set(); let strokes = [];
+  list.forEach((e, i) => {
+    if (e.type==='add') blocks.set(e.b.id, { ...e.b });
+    else if (e.type==='move'){ const b = blocks.get(e.id); if (b){ b.x = e.x; b.y = e.y; } }
+    else if (e.type==='edit'){ const b = blocks.get(e.id); if (b) b[e.field] = e.value; }
+    else if (e.type==='remove') blocks.delete(e.id);
+    else if (e.type==='stroke') strokes.push({ ...e, sid:'k'+i });
+    else if (e.type==='erase') strokes = strokes.filter(s => s.sid !== e.sid);
+    else if (e.type==='reveal') rev.add(e.id);
+  });
+  return { blocks, strokes, rev };
+}
+
+function push(e){
+  if (!live()){ toast('Это запись урока. Создай ветку, чтобы менять доску с этого момента'); render(); return false; }
+  const list = br().events; const last = list[list.length-1];
+  e.t = (last ? last.t : 0) + (e.type==='move' ? 3 : 9);
+  list.push(e); render(); return true;
+}
+
+/* ---------- rendering ---------- */
+function pathD(p){
+  if (p.length < 3) return 'M' + p.map(q => q[0].toFixed(1)+' '+q[1].toFixed(1)).join(' L');
+  let d = `M${p[0][0].toFixed(1)} ${p[0][1].toFixed(1)}`;
+  for (let i=1;i<p.length-1;i++){ const mx=(p[i][0]+p[i+1][0])/2, my=(p[i][1]+p[i+1][1])/2; d += ` Q${p[i][0].toFixed(1)} ${p[i][1].toFixed(1)} ${mx.toFixed(1)} ${my.toFixed(1)}`; }
+  const l = p[p.length-1]; return d + ` L${l[0].toFixed(1)} ${l[1].toFixed(1)}`;
+}
+function fx(t){
+  const m = t.match(/^(.*?=\s*)(.+?)\s\/\s(.+)$/);
+  if (!m) return esc(t);
+  let num = m[2].trim(); if (/^\(.*\)$/.test(num)) num = num.slice(1,-1);
+  return esc(m[1]) + `<span class="frac"><span>${esc(num)}</span><span>${esc(m[3])}</span></span>`;
+}
+function hl(src){
+  return esc(src)
+    .replace(/\b(\d+(?:\.\d+)?)\b/g,'<span class="num">$1</span>')
+    .replace(/\b(def|return|if|else|elif|for|in|while|import|from|print|range|and|or|not|True|False|None)\b/g,'<span class="kw">$1</span>')
+    .replace(/(#[^\n]*)/g,'<span class="com">$1</span>');
+}
+function blockHTML(b, st){
+  const who = b.who || 'teacher';
+  const tag = who==='student' ? `<span class="tag">${esc(STUDENTS[student].name)}</span>` : '';
+  let inner = '', cls = '';
+  switch (b.kind){
+    case 'sticky': inner = `<div class="txt" data-edit="text">${esc(b.text)}</div>`; break;
+    case 'formula': inner = `<div class="lbl">формула ${tag}</div><div class="fx" data-edit="text">${fx(b.text)}</div>`; break;
+    case 'code': inner = `<div class="lbl">python ${tag}</div><pre data-edit="text">${hl(b.text)}</pre>`; break;
+    case 'ink': inner = `<div class="hand" data-edit="text">${esc(b.text)}</div>`; break;
+    case 'card': {
+      const f = flipped.has(b.id); cls = f ? ' back' : '';
+      inner = `<div class="lbl" style="justify-content:center">карточка · ${esc(b.lang||'es')} ${tag}</div><div class="face" data-edit="${f?'back':'front'}">${esc(f?b.back:b.front)}</div><div class="hint">${f?'нажми, чтобы вернуть':'нажми, чтобы перевернуть'}</div>`;
+      break; }
+    case 'hidden': {
+      if (st.rev.has(b.id)){ cls=' open'; inner = `<div class="lbl">ответ · раскрыт</div><div class="ans" data-edit="text">${esc(b.text)}</div>`; }
+      else if (role==='teacher') inner = `<div class="lbl">${icon('i-eyeoff')} скрытый ответ · видишь только ты</div><div class="ans dim" data-edit="text">${esc(b.text)}</div><button class="btn reveal" data-reveal>Раскрыть ученику</button>`;
+      else inner = `<div class="lbl">${icon('i-eyeoff')} ответ скрыт учителем</div><div class="ans blur" aria-hidden="true">${esc(b.text)}</div>`;
+      break; }
+  }
+  const w = b.w ? `width:${b.w}px;` : '';
+  return `<div class="blk k-${b.kind} by-${who}${cls}" data-id="${b.id}" style="left:${b.x}px;top:${b.y}px;${w}">${inner}</div>`;
+}
+
+const ink = $('#ink'), blocksEl = $('#blocks'), vp = $('#vp'), world = $('#world'), peer = $('#peer');
+function render(){
+  cur = stateOf(evs());
+  ink.innerHTML = cur.strokes.map(s => `<path class="s-${s.color || (s.who==='student' ? 'student' : 'ink')}" d="${pathD(s.pts)}"/>`).join('');
+  blocksEl.innerHTML = [...cur.blocks.values()].map(b => blockHTML(b, cur)).join('');
+  renderTimeline(); renderChrome();
+}
+function renderTimeline(){
+  const all = br().events, n = all.length, p = B().pos ?? n;
+  const tl = $('#tl'); tl.max = n; tl.value = p;
+  $('#t-cur').textContent = fmt(p ? all[p-1].t : 0);
+  $('#t-end').textContent = fmt(n ? all[n-1].t : 0);
+  $('#live').hidden = !live();
+  $('#pastbar').hidden = live();
+  $('#past-t').textContent = `Запись урока · ${fmt(p ? all[p-1].t : 0)} из ${fmt(n ? all[n-1].t : 0)}. Правки выключены`;
+  $('#chips').innerHTML = B().branches.map(x => `<button class="chip" data-br="${x.id}" aria-pressed="${x.id===B().cur}">${icon('i-branch')}${esc(x.name)}${x.from!=null?` <span class="mono">от ${fmt(x.from)}</span>`:''}</button>`).join('');
+  peer.style.display = live() && screen==='board' ? '' : 'none';
+}
+function renderChrome(){
+  const app = $('#app'); app.dataset.screen = screen; app.dataset.role = role;
+  $('#tab-map').setAttribute('aria-pressed', screen==='map');
+  $('#tab-board').setAttribute('aria-pressed', screen==='board');
+  $('#board').hidden = screen !== 'board'; $('#map').hidden = screen !== 'map';
+  const S = STUDENTS[student];
+  $('#role-s').textContent = S.name;
+  $('#role-t').setAttribute('aria-pressed', role==='teacher'); $('#role-s').setAttribute('aria-pressed', role==='student');
+  if (boardId){ const info = topicById(boardId); $('#crumb').innerHTML = `${esc(STUDENTS[info.st].name)} / ${esc(info.isl.name)} / <b>${esc(info.t.title)}</b>`; }
+  $('#avs').innerHTML = `<span class="av" style="background:var(--teacher)" title="Учитель">У</span><span class="av" style="background:var(--student)" title="${esc(S.name)} в сети">${esc(S.name[0])}</span>`;
+  const other = role==='teacher' ? { n:S.name, c:'var(--student)' } : { n:'Учитель', c:'var(--teacher)' };
+  peer.querySelector('.nm').textContent = other.n; peer.querySelector('.nm').style.background = other.c; peer.querySelector('svg').style.color = other.c;
+  peer.querySelector('svg use').parentNode.style.fill = other.c;
+  $('#follow').classList.toggle('on', leading);
+  $('#follow .bl').textContent = leading ? 'Ученик смотрит' : 'Смотри сюда';
+  $('#board').classList.toggle('leading', leading);
+  $('#banner').hidden = !(leading && role==='student');
+  if (role==='student' && tool==='hidden') setTool('select');
+}
+
+/* ---------- camera ---------- */
+function applyCam(){
+  world.style.transform = `translate(${cam.x}px,${cam.y}px) scale(${cam.z})`;
+  const g = 24*cam.z; vp.style.backgroundSize = `${g}px ${g}px`; vp.style.backgroundPosition = `${cam.x}px ${cam.y}px`;
+  peer.style.transform = `scale(${1/cam.z})`;
+  $('#z-val').textContent = Math.round(cam.z*100) + '%';
+}
+function toWorld(e){ const r = vp.getBoundingClientRect(); return { x:(e.clientX - r.left - cam.x)/cam.z, y:(e.clientY - r.top - cam.y)/cam.z }; }
+function zoomAt(f, sx, sy){
+  const z = Math.min(3, Math.max(.25, cam.z*f)); const k = z/cam.z;
+  cam.x = sx - (sx - cam.x)*k; cam.y = sy - (sy - cam.y)*k; cam.z = z; applyCam();
+}
+function fit(){
+  const els = blocksEl.children; if (!els.length){ cam = { x:vp.clientWidth/2, y:vp.clientHeight/2, z:1 }; applyCam(); return; }
+  let x1=Infinity,y1=Infinity,x2=-Infinity,y2=-Infinity;
+  for (const el of els){ const x=parseFloat(el.style.left), y=parseFloat(el.style.top); x1=Math.min(x1,x); y1=Math.min(y1,y); x2=Math.max(x2,x+el.offsetWidth); y2=Math.max(y2,y+el.offsetHeight); }
+  const ins = { l:24, r:24, t:64, b: $('#tray').offsetHeight + 12 };
+  const W = vp.clientWidth - ins.l - ins.r, H = vp.clientHeight - ins.t - ins.b;
+  const z = Math.max(.3, Math.min(1.15, W/(x2-x1), H/(y2-y1)));
+  cam = { z, x: ins.l + (W - (x2-x1)*z)/2 - x1*z, y: ins.t + (H - (y2-y1)*z)/2 - y1*z };
+  applyCam();
+}
+
+/* ---------- tools ---------- */
+let penColor = 'ink';
+function setTool(t, color){
+  tool = t; if (color) penColor = color;
+  document.querySelectorAll('#shelf [data-tool]').forEach(b => b.setAttribute('aria-pressed', b.dataset.tool===t && (t!=='pen' || b.dataset.color===penColor)));
+  vp.className = (t==='pen' || t==='line') ? 't-pen' : t==='laser' ? 't-laser' : t==='erase' ? 't-erase' : t==='select' ? '' : 't-add';
+}
+$('#shelf').addEventListener('click', e => { const b = e.target.closest('[data-tool]'); if (b) setTool(b.dataset.tool, b.dataset.color); });
+const strokeColor = () => role==='student' && penColor==='ink' ? 'student' : penColor;
+function distSeg(p, a, b){
+  const dx = b[0]-a[0], dy = b[1]-a[1], L = dx*dx + dy*dy;
+  const t = L ? Math.max(0, Math.min(1, ((p.x-a[0])*dx + (p.y-a[1])*dy) / L)) : 0;
+  return Math.hypot(p.x - a[0] - t*dx, p.y - a[1] - t*dy);
+}
+function eraseAt(p){
+  const r = 10 / cam.z;
+  for (const s of cur.strokes){
+    for (let i=1;i<s.pts.length;i++) if (distSeg(p, s.pts[i-1], s.pts[i]) < r){ push({ type:'erase', sid:s.sid }); return; }
+  }
+}
+
+const DEFAULTS = {
+  sticky: { w:200, text:'Новая заметка' },
+  ink: { text:'Пишу от руки' },
+  formula: { w:260, text:'S = a · b' },
+  code: { w:300, text:'def hola(nombre):\n    return "Hola, " + nombre' },
+  card: { w:180, lang:'es', front:'la tiza', back:'мел' },
+  hidden: { w:220, text:'Ответ: …' }
+};
+function addBlock(kind, p){
+  const d = DEFAULTS[kind]; const id = nid();
+  const b = { id, kind, who:role, x:Math.round(p.x - (d.w||140)/2), y:Math.round(p.y - 24), ...d };
+  if (!push({ type:'add', b })) return;
+  setTool('select');
+  if (kind !== 'card'){ const el = blocksEl.querySelector(`[data-id="${id}"] [data-edit]`); if (el) beginEdit(el); }
+}
+
+function beginEdit(el){
+  const blk = el.closest('.blk'); const b = cur.blocks.get(blk.dataset.id); const field = el.dataset.edit;
+  if (!b) return;
+  el.textContent = b[field]; el.contentEditable = 'true'; el.focus();
+  const r = document.createRange(); r.selectNodeContents(el); const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+  const done = () => {
+    el.removeEventListener('blur', done); el.contentEditable = 'false';
+    const v = el.innerText.replace(/\n$/,'');
+    if (v.trim() && v !== b[field]) push({ type:'edit', id:b.id, field, value:v }); else render();
+  };
+  el.addEventListener('blur', done);
+  el.addEventListener('keydown', ev => { if (ev.key==='Escape' || (ev.key==='Enter' && (ev.metaKey||ev.ctrlKey))) { ev.preventDefault(); el.blur(); } });
+}
+
+/* ---------- pointer ---------- */
+let act = null, spaceDown = false;
+vp.addEventListener('pointerdown', e => {
+  if (e.button === 2) return;
+  if (e.target.closest('[contenteditable="true"]')) return;
+  if (e.target.closest('[data-reveal]')){ const id = e.target.closest('.blk').dataset.id; if (push({ type:'reveal', id })) toast('Ответ раскрыт: ученик его видит'); return; }
+  const blk = e.target.closest('.blk'); const p = toWorld(e);
+  if (e.button === 1 || spaceDown || (tool==='select' && !blk)){
+    act = { k:'pan', sx:e.clientX, sy:e.clientY, cx:cam.x, cy:cam.y }; vp.classList.add('panning'); return;
+  }
+  if (tool === 'select'){
+    act = { k:'drag', el:blk, id:blk.dataset.id, sx:e.clientX, sy:e.clientY, ox:parseFloat(blk.style.left), oy:parseFloat(blk.style.top), moved:false };
+  } else if (tool === 'pen' || tool === 'line'){
+    if (!live()) return push({});
+    const path = document.createElementNS('http://www.w3.org/2000/svg','path'); path.setAttribute('class','s-'+strokeColor()); ink.appendChild(path);
+    act = { k:tool, pts:[[p.x,p.y]], path };
+  } else if (tool === 'erase'){
+    if (!live()) return push({});
+    if (blk){ push({ type:'remove', id:blk.dataset.id }); return; }
+    act = { k:'erase' }; eraseAt(p);
+  } else if (tool === 'laser'){
+    act = { k:'laser' }; laserAdd(e);
+  } else {
+    if (!live()) return push({});
+    addBlock(tool, p);
+  }
+});
+window.addEventListener('pointermove', e => {
+  if (!act) return;
+  if (act.k === 'pan'){ cam.x = act.cx + e.clientX - act.sx; cam.y = act.cy + e.clientY - act.sy; applyCam(); }
+  else if (act.k === 'drag'){
+    const dx = (e.clientX-act.sx)/cam.z, dy = (e.clientY-act.sy)/cam.z;
+    if (!act.moved && Math.hypot(e.clientX-act.sx, e.clientY-act.sy) > 3) act.moved = true;
+    if (act.moved && live()){ act.el.style.left = act.ox+dx+'px'; act.el.style.top = act.oy+dy+'px'; act.el.classList.add('drag'); }
+  } else if (act.k === 'pen'){ const p = toWorld(e); act.pts.push([p.x,p.y]); act.path.setAttribute('d', pathD(act.pts)); }
+  else if (act.k === 'line'){ const p = toWorld(e); act.pts[1] = [p.x,p.y]; act.path.setAttribute('d', pathD(act.pts)); }
+  else if (act.k === 'erase') eraseAt(toWorld(e));
+  else if (act.k === 'laser') laserAdd(e);
+});
+window.addEventListener('pointerup', () => {
+  if (!act) return; const a = act; act = null; vp.classList.remove('panning');
+  if (a.k === 'drag'){
+    if (a.moved){
+      if (live()) push({ type:'move', id:a.id, x:Math.round(parseFloat(a.el.style.left)), y:Math.round(parseFloat(a.el.style.top)) });
+      else push({});
+    } else if (a.el.classList.contains('k-card')){ flipped.has(a.id) ? flipped.delete(a.id) : flipped.add(a.id); render(); }
+  } else if (a.k === 'pen' || a.k === 'line'){
+    if (a.pts.length > 1) push({ type:'stroke', who:role, color:strokeColor(), pts:a.pts.filter((_,i)=>i%2===0 || i===a.pts.length-1).map(q=>[Math.round(q[0]*10)/10, Math.round(q[1]*10)/10]) });
+    else a.path.remove();
+  }
+});
+vp.addEventListener('dblclick', e => {
+  const el = e.target.closest('[data-edit]'); if (!el || el.isContentEditable) return;
+  if (!live()) return push({});
+  const blk = el.closest('.blk');
+  if (blk.classList.contains('k-hidden') && role==='student') return;
+  beginEdit(el);
+});
+vp.addEventListener('wheel', e => {
+  e.preventDefault(); const r = vp.getBoundingClientRect();
+  if (e.ctrlKey || e.metaKey) zoomAt(Math.exp(-e.deltaY*0.01), e.clientX-r.left, e.clientY-r.top);
+  else { cam.x -= e.deltaX; cam.y -= e.deltaY; applyCam(); }
+}, { passive:false });
+$('#z-in').onclick = () => zoomAt(1.2, vp.clientWidth/2, vp.clientHeight/2);
+$('#z-out').onclick = () => zoomAt(1/1.2, vp.clientWidth/2, vp.clientHeight/2);
+$('#z-fit').onclick = fit;
+
+const KEYS = { v:'select', p:'pen', e:'erase', r:'line', l:'laser', n:'sticky', t:'ink', f:'formula', c:'code', k:'card', h:'hidden' };
+const CHALK = { '1':'ink', '2':'teacher', '3':'blue' };
+window.addEventListener('keydown', e => {
+  if (document.activeElement && (document.activeElement.isContentEditable || /INPUT|TEXTAREA/.test(document.activeElement.tagName))) return;
+  if (e.code === 'Space'){ spaceDown = true; return; }
+  if (screen !== 'board' || e.metaKey || e.ctrlKey) return;
+  if (CHALK[e.key]) return setTool('pen', CHALK[e.key]);
+  const t = KEYS[e.key.toLowerCase()]; if (t && !(t==='hidden' && role==='student')) setTool(t);
+});
+window.addEventListener('keyup', e => { if (e.code === 'Space') spaceDown = false; });
+
+/* ---------- laser ---------- */
+const lc = $('#laser'), ctx = lc.getContext('2d'); let lpts = [], lraf = 0;
+function sizeLaser(){ const d = devicePixelRatio || 1; lc.width = vp.clientWidth*d; lc.height = vp.clientHeight*d; ctx.setTransform(d,0,0,d,0,0); }
+function laserAdd(e){ const r = vp.getBoundingClientRect(); lpts.push({ x:e.clientX-r.left, y:e.clientY-r.top, t:performance.now() }); if (!lraf) lraf = requestAnimationFrame(ldraw); }
+function ldraw(){
+  const now = performance.now(); lpts = lpts.filter(p => now - p.t < 900);
+  ctx.clearRect(0,0,lc.width,lc.height);
+  const col = getComputedStyle(document.documentElement).getPropertyValue(role==='teacher' ? '--teacher' : '--student').trim();
+  ctx.lineCap = 'round'; ctx.strokeStyle = col; ctx.fillStyle = col;
+  for (let i=1;i<lpts.length;i++){ const a = 1 - (now-lpts[i].t)/900; ctx.globalAlpha = a; ctx.lineWidth = 1.5 + 5*a; ctx.beginPath(); ctx.moveTo(lpts[i-1].x, lpts[i-1].y); ctx.lineTo(lpts[i].x, lpts[i].y); ctx.stroke(); }
+  const l = lpts[lpts.length-1]; if (l){ ctx.globalAlpha = 1 - (now-l.t)/900; ctx.beginPath(); ctx.arc(l.x, l.y, 5, 0, 7); ctx.fill(); }
+  ctx.globalAlpha = 1; lraf = lpts.length ? requestAnimationFrame(ldraw) : 0;
+}
+
+/* ---------- timeline and branches ---------- */
+let playT = 0;
+function stopPlay(){ clearInterval(playT); playT = 0; $('#play').innerHTML = icon('i-play'); $('#play').setAttribute('aria-label','Проиграть запись урока'); }
+$('#play').onclick = () => {
+  if (playT) return stopPlay();
+  const n = br().events.length; if (live() || B().pos >= n) B().pos = 0;
+  $('#play').innerHTML = icon('i-pause'); $('#play').setAttribute('aria-label','Пауза');
+  render();
+  playT = setInterval(() => { const n = br().events.length; B().pos++; if (B().pos >= n){ B().pos = null; stopPlay(); } render(); }, 420);
+};
+$('#tl').addEventListener('input', e => { stopPlay(); const v = +e.target.value; B().pos = v >= br().events.length ? null : v; render(); });
+$('#past-live').onclick = () => { stopPlay(); B().pos = null; render(); };
+function makeBranch(){
+  stopPlay();
+  const b = B(), all = br().events, p = b.pos ?? all.length;
+  const names = BRANCH_NAMES[b.seedKey] || [];
+  const name = names[b.branches.length-1] || `Ветка ${b.branches.length}`;
+  const id = nid(); const from = p ? all[p-1].t : 0;
+  b.branches.push({ id, name, from, events: all.slice(0, p) });
+  b.cur = id; b.pos = null; render();
+  toast(`Ветка «${name}» начата с ${fmt(from)}. Основная запись не изменится`);
+}
+$('#branch').onclick = makeBranch; $('#past-branch').onclick = makeBranch;
+$('#chips').addEventListener('click', e => { const c = e.target.closest('[data-br]'); if (!c) return; stopPlay(); B().cur = c.dataset.br; B().pos = null; render(); });
+
+/* ---------- top bar ---------- */
+document.querySelectorAll('[data-screen]').forEach(b => { if (b.tagName==='BUTTON') b.onclick = () => go(b.dataset.screen); });
+document.querySelectorAll('[data-role]').forEach(b => { if (b.tagName==='BUTTON') b.onclick = () => { role = b.dataset.role; render(); toast(role==='teacher' ? 'Ты видишь доску как учитель' : `Ты видишь доску глазами ученика (${STUDENTS[student].name})`); }; });
+$('#follow').onclick = () => { leading = !leading; renderChrome(); toast(leading ? `${STUDENTS[student].name} видит то же, что и ты` : 'Ученик снова двигается по доске сам'); };
+$('#unfollow').onclick = () => { leading = false; renderChrome(); };
+$('#share').onclick = () => {
+  const url = `https://tiza.app/b/${boardId}-${B().cur}`;
+  try { navigator.clipboard.writeText(url).then(() => toast('Ссылка скопирована: ' + url), () => toast('Ссылка: ' + url)); } catch { toast('Ссылка: ' + url); }
+};
+
+let toastT = 0;
+function toast(msg){ const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2600); }
+
+/* ---------- peer presence ---------- */
+setInterval(() => {
+  if (screen !== 'board' || !cur || !live()) return;
+  const arr = [...cur.blocks.values()]; if (!arr.length) return;
+  const b = arr[Math.floor(Math.random()*arr.length)];
+  peer.style.left = (b.x + 30 + Math.random()*140) + 'px'; peer.style.top = (b.y + 24 + Math.random()*50) + 'px';
+}, 2600);
+
+/* ---------- navigation ---------- */
+function openBoard(id){
+  stopPlay(); leading = false; flipped.clear();
+  const info = topicById(id);
+  if (!boards[id]) boards[id] = { seedKey: info.t.seed, cur:'main', pos:null, branches:[{ id:'main', name:'Основная', from:null, events: seedFor(info.t, info.isl.subject) }] };
+  boardId = id; student = info.st; screen = 'board'; setTool('select'); render();
+  requestAnimationFrame(() => { sizeLaser(); fit(); });
+}
+function go(s){
+  if (s === 'board' && !boardId) return openBoard('m2');
+  screen = s; stopPlay(); render();
+  if (s === 'board') requestAnimationFrame(() => { sizeLaser(); fit(); });
+  else renderMap();
+}
+
+/* ---------- map ---------- */
+function blob(cx, cy, rx, ry, seed){
+  let s = seed; const rnd = () => (s = (s*9301 + 49297) % 233280) / 233280;
+  const n = 11, p = [];
+  for (let i=0;i<n;i++){ const a = i/n*Math.PI*2, k = .86 + rnd()*.2; p.push([cx + Math.cos(a)*rx*k, cy + Math.sin(a)*ry*k]); }
+  const f = q => q[0].toFixed(1) + ' ' + q[1].toFixed(1);
+  let d = 'M' + f(p[0]);
+  for (let i=0;i<n;i++){
+    const p0=p[(i-1+n)%n], p1=p[i], p2=p[(i+1)%n], p3=p[(i+2)%n];
+    d += ` C${f([p1[0]+(p2[0]-p0[0])/6, p1[1]+(p2[1]-p0[1])/6])} ${f([p2[0]-(p3[0]-p1[0])/6, p2[1]-(p3[1]-p1[1])/6])} ${f(p2)}`;
+  }
+  return d + 'Z';
+}
+const META = { done: t => `пройдено · ${t.date}`, now: t => `сейчас · урок ${t.date}`, next: () => 'следующая', later: () => 'впереди' };
+function renderMap(){
+  const S = STUDENTS[student];
+  $('#students').innerHTML = Object.entries(STUDENTS).map(([k,v]) => `<button data-st="${k}" aria-pressed="${k===student}">${esc(v.name)}</button>`).join('');
+  const all = S.islands.flatMap(i => i.topics), done = all.filter(t => t.st==='done').length;
+  const now = all.filter(t => t.st==='now').map(t => t.title);
+  $('#map-title').textContent = `Карта обучения: ${S.name}`;
+  $('#map-sum').innerHTML = `Пройдено <b>${done} из ${all.length}</b> тем. Сейчас: ${now.map(esc).join(', ')}. Следующий урок: <b>${esc(S.next)}</b>.`;
+  let svg = `<svg viewBox="0 0 980 560" width="980" height="560" aria-hidden="true"><defs>
+    <pattern id="sea" width="28" height="16" patternUnits="userSpaceOnUse"><path d="M2 9q3.5-3 7 0t7 0" fill="none" style="stroke:var(--line)" stroke-width="1.2" stroke-linecap="round"/></pattern>
+    <pattern id="paper" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0H0V20" fill="none" style="stroke:var(--grid)" stroke-width="1"/></pattern></defs>
+    <rect width="980" height="560" fill="url(#sea)"/>`;
+  for (const isl of S.islands){
+    const d = blob(isl.c[0], isl.c[1], isl.r[0], isl.r[1], isl.seed);
+    svg += `<path d="${d}" style="fill:var(--paper)"/><path d="${d}" fill="url(#paper)" style="stroke:var(--line)" stroke-width="1.5"/>`;
+    const ts = isl.topics;
+    for (let i=1;i<ts.length;i++){
+      const a = ts[i-1].p, b = ts[i].p, mx = (a[0]+b[0])/2, my = (a[1]+b[1])/2 - 18;
+      const solid = ts[i].st==='done' || ts[i].st==='now';
+      svg += `<path d="M${a[0]} ${a[1]} Q${mx} ${my} ${b[0]} ${b[1]}" fill="none" style="stroke:${solid?'var(--ink-2)':'var(--line)'}" stroke-width="2" ${solid?'':'stroke-dasharray="5 6"'} stroke-linecap="round"/>`;
+    }
+    const n = ts.filter(t => t.st==='done').length;
+    svg += `<text x="${isl.c[0]}" y="${isl.c[1]+isl.r[1]+24}" text-anchor="middle" style="fill:var(--ink);font-family:var(--f-serif);font-size:19px;font-weight:500">${esc(isl.name)}</text>
+            <text x="${isl.c[0]}" y="${isl.c[1]+isl.r[1]+43}" text-anchor="middle" style="fill:var(--ink-2);font-family:var(--f-mono);font-size:11px">${n} из ${ts.length} пройдено</text>`;
+  }
+  svg += '</svg>';
+  const nodes = S.islands.flatMap(isl => isl.topics.map(t =>
+    `<button class="node st-${t.st}" data-topic="${t.id}" style="left:${t.p[0]}px;top:${t.p[1]}px"><i class="dot ${t.st==='next'?'':t.st}"></i><span><span class="t">${esc(t.title)}</span><span class="m" style="display:block">${META[t.st](t)}</span></span></button>`)).join('');
+  $('#map-world').innerHTML = svg + nodes;
+}
+$('#map-world').addEventListener('click', e => { const n = e.target.closest('[data-topic]'); if (n) openBoard(n.dataset.topic); });
+$('#students').addEventListener('click', e => { const b = e.target.closest('[data-st]'); if (b){ student = b.dataset.st; renderMap(); renderChrome(); } });
+
+window.addEventListener('resize', () => { if (screen==='board') sizeLaser(); });
+
+openBoard('m2');
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (screen==='board') fit(); });
+</script>

@@ -1,0 +1,18 @@
+{
+  "name": "tiza",
+  "version": "0.0.0",
+  "description": "Tiza: онлайн-доска для уроков с учеником",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Maestro-Lumis/Tiza.git"
+  },
+  "homepage": "https://github.com/Maestro-Lumis/Tiza#readme",
+  "bugs": {
+    "url": "https://github.com/Maestro-Lumis/Tiza/issues"
+  },
+  "private": true
+}

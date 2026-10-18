@@ -1,0 +1,33 @@
+# Зависимости и сборка
+node_modules/
+dist/
+build/
+.cache/
+
+# Секреты и окружение: никогда не коммитим
+.env
+.env.*
+*.pem
+*.key
+secrets/
+
+# JSON-файлы не коммитим (данные, конфиги с ключами, сохранённые доски).
+# Исключение: служебные файлы проекта без секретов.
+*.json
+!package.json
+!package-lock.json
+
+# Локальные данные досок
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Логи
+*.log
+npm-debug.log*
+
+# IDE и система
+.idea/
+.vscode/
+.DS_Store
