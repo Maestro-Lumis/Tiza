@@ -1,3 +1,5 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Tiza</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -28,7 +30,8 @@
   --blue:#94B2EE; --wood:#2D2821; --wood-top:#3A3329; --wood-dk:#1C1915; --stick:#9C7448;
   --felt:#8D8A80; --ruler:#BFA857; --ruler-ink:#2E2610; --sticky-edge:#6A6238; --dust:rgba(234,230,218,.35); color-scheme:dark}
 
-html,body{height:100%}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--ink);font-family:var(--f-ui);font-size:14px;overflow:hidden}
 button{font:inherit;color:inherit}
 :focus-visible{outline:2px solid var(--teacher);outline-offset:2px}
@@ -71,8 +74,8 @@ button{font:inherit;color:inherit}
 .s-ink{stroke:var(--ink)} .s-teacher{stroke:var(--teacher)} .s-blue{stroke:var(--blue)} .s-student{stroke:var(--student)}
 #laser{position:absolute;inset:0;pointer-events:none}
 
-.blk{position:absolute;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 13px 12px;user-select:none;-webkit-user-select:none;cursor:grab}
-.blk.drag{cursor:grabbing;box-shadow:0 10px 28px var(--shade);z-index:3}
+.blk{position:absolute;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 13px 12px;user-select:none;-webkit-user-select:none;cursor:default}
+.k-card{cursor:pointer}
 .lbl{font-family:var(--f-mono);font-weight:500;font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-2);margin-bottom:6px;display:flex;gap:6px;align-items:center}
 .tag{letter-spacing:.02em;text-transform:none;color:var(--student);border:1px solid currentColor;border-radius:4px;padding:0 4px}
 .k-sticky{background:var(--sticky);border-color:transparent;color:var(--sticky-ink);font-size:15px;line-height:1.45;border-radius:3px;transform:rotate(-.7deg);box-shadow:0 2px 6px var(--shade)}
@@ -261,7 +264,7 @@ button{font:inherit;color:inherit}
         <button class="btn" id="past-live">Вернуться в эфир</button>
       </div>
       <div class="shelf" id="shelf" role="toolbar" aria-label="Инструменты на полке">
-        <button class="obj" data-tool="select" aria-label="Указка: выбрать и двигать (V)" aria-pressed="true"><span class="cap">указка · двигать</span>
+        <button class="obj" data-tool="select" aria-label="Указка: листать доску (V)" aria-pressed="true"><span class="cap">указка · листать доску</span>
           <svg width="112" height="14" viewBox="0 0 112 14" aria-hidden="true"><path d="M4 6.3L102 3a4 4 0 010 8L4 7.7z" style="fill:var(--stick)"/><rect x="84" y="3.4" width="9" height="7.2" style="fill:var(--wood-dk)"/><circle cx="4" cy="7" r="2" style="fill:var(--ink)"/></svg></button>
         <div class="grp">
           <button class="obj" data-tool="pen" data-color="ink" aria-label="Мел, графит (1)" aria-pressed="false"><span class="cap">мел · графит</span>
@@ -330,73 +333,13 @@ const icon = id => `<svg class="ic"><use href="#${id}"/></svg>`;
 
 /* ---------- data ---------- */
 const STUDENTS = {
-  anya: { name:'Аня', next:'сб, 18 окт, 17:00', islands:[
-    { name:'Математика', subject:'math', c:[255,270], r:[225,205], seed:3, topics:[
-      { id:'m1', title:'Линейные уравнения', st:'done', date:'3 окт', p:[160,140] },
-      { id:'m2', title:'Квадратные уравнения', st:'now', date:'17 окт', p:[335,215], seed:'quad' },
-      { id:'m3', title:'Теорема Виета', st:'next', p:[180,320] },
-      { id:'m4', title:'Неравенства', st:'later', p:[340,410] } ]},
-    { name:'Испанский', subject:'es', c:[725,265], r:[220,210], seed:11, topics:[
-      { id:'e1', title:'Алфавит и звуки', st:'done', date:'19 сен', p:[640,130] },
-      { id:'e2', title:'Ser и estar', st:'done', date:'10 окт', p:[810,205], seed:'serestar' },
-      { id:'e3', title:'Presente: глаголы на -ar', st:'now', date:'17 окт', p:[650,310] },
-      { id:'e4', title:'Pretérito perfecto', st:'later', p:[815,405] } ]} ]},
-  misha: { name:'Миша', next:'пн, 20 окт, 19:30', islands:[
-    { name:'Информатика', subject:'code', c:[255,270], r:[225,205], seed:5, topics:[
-      { id:'i1', title:'Переменные и типы', st:'done', date:'26 сен', p:[165,135] },
-      { id:'i2', title:'Циклы', st:'done', date:'6 окт', p:[335,210] },
-      { id:'i3', title:'Функции', st:'now', date:'16 окт', p:[175,315] },
-      { id:'i4', title:'Рекурсия', st:'later', p:[335,410] } ]},
-    { name:'Английский', subject:'en', c:[725,265], r:[210,185], seed:7, topics:[
-      { id:'n1', title:'Present Simple', st:'done', date:'30 сен', p:[645,160] },
-      { id:'n2', title:'Present Perfect', st:'now', date:'14 окт', p:[805,250] },
-      { id:'n3', title:'Conditionals', st:'later', p:[660,360] } ]} ]}
+  anya: { name:'Аня', islands:[] },
+  misha: { name:'Миша', islands:[] }
 };
-const BRANCH_NAMES = { quad:['Через теорему Виета','Решение Ани','Графический способ'] };
+const BRANCH_NAMES = {};
 
 /* ---------- seeds ---------- */
-const wave = (x,y,w,a=4) => Array.from({length:25},(_,i)=>[x+w*i/24, y+Math.sin(i/24*Math.PI*3)*a]);
-const ring = (cx,cy,rx,ry) => Array.from({length:34},(_,i)=>{const a=-2.2+i/33*Math.PI*2.15; return [cx+Math.cos(a)*rx*(1+i*.002), cy+Math.sin(a)*ry]});
-const line = (x1,y1,x2,y2,bend=0) => Array.from({length:13},(_,i)=>{const t=i/12; return [x1+(x2-x1)*t, y1+(y2-y1)*t - Math.sin(t*Math.PI)*bend]});
-
-function seedFor(topic, subject){
-  const T = 'teacher', S = 'student';
-  let t = 0; const ev = []; const at = (dt, e) => { t += dt; e.t = t; ev.push(e); };
-  const add = (dt, b) => at(dt, { type:'add', b });
-  if (topic.seed === 'quad'){
-    add(30,  { id:'q1', kind:'sticky', x:-430, y:-150, w:210, who:T, text:'Квадратное уравнение:\nax² + bx + c = 0, a ≠ 0' });
-    add(110, { id:'q2', kind:'formula', x:-90, y:-160, w:290, who:T, text:'D = b² − 4ac' });
-    add(150, { id:'q3', kind:'formula', x:-90, y:-50, w:290, who:T, text:'x₁,₂ = (−b ± √D) / 2a' });
-    at(40,   { type:'stroke', who:T, pts:ring(55,0,182,64) });
-    add(250, { id:'q4', kind:'ink', x:-440, y:40, who:S, text:'x² − 5x + 6 = 0\na = 1, b = −5, c = 6' });
-    add(180, { id:'q5', kind:'ink', x:-440, y:160, who:S, text:'D = 25 − 24 = 1' });
-    at(30,   { type:'stroke', who:S, pts:wave(-430,205,170,3) });
-    at(60,   { type:'stroke', who:T, pts:line(-250,180,-95,140,30) });
-    at(4,    { type:'stroke', who:T, pts:[[-110,128],[-95,140],[-113,150]] });
-    add(320, { id:'q6', kind:'hidden', x:-90, y:105, w:240, who:T, text:'x₁ = 3,  x₂ = 2' });
-    add(280, { id:'q7', kind:'code', x:270, y:-160, w:320, who:T, text:'def roots(a, b, c):\n    d = b*b - 4*a*c\n    if d < 0:\n        return []  # нет корней\n    return [(-b + d**0.5) / (2*a),\n            (-b - d**0.5) / (2*a)]\n\nprint(roots(1, -5, 6))' });
-    add(260, { id:'q8', kind:'sticky', x:300, y:110, w:200, who:T, text:'Домашка: № 214, 216, 219\nПроверить через код ↑' });
-    at(120,  { type:'stroke', who:S, pts:[[168,150],[178,164],[200,132]] });
-    return ev;
-  }
-  if (topic.seed === 'serestar'){
-    add(40,  { id:'s1', kind:'sticky', x:-430, y:-110, w:230, who:T, text:'Ser: кто ты, откуда, профессия.\nEstar: состояние и место.' });
-    add(120, { id:'s2', kind:'card', x:-130, y:-130, w:180, who:T, lang:'es', front:'ser', back:'быть (постоянное)' });
-    add(60,  { id:'s3', kind:'card', x:80, y:-130, w:180, who:T, lang:'es', front:'estar', back:'быть (состояние, место)' });
-    add(300, { id:'s4', kind:'ink', x:-130, y:40, who:S, text:'Soy de Moscú.\nEstoy en casa.' });
-    at(40,   { type:'stroke', who:T, pts:wave(-120,140,200,3) });
-    add(200, { id:'s5', kind:'hidden', x:120, y:40, w:250, who:T, text:'Estoy cansada.\nЯ устала: состояние → estar' });
-    return ev;
-  }
-  add(20, { id:topic.id+'-s', kind:'sticky', x:-320, y:-70, w:220, who:T, text: topic.st==='later' ? 'План урока: ' + topic.title + '\nДоска пока пустая' : 'Тема: ' + topic.title });
-  if (topic.st === 'later') return ev;
-  if (subject==='math') add(90, { id:topic.id+'-f', kind:'formula', x:-40, y:-80, w:260, who:T, text:'x = −b / a' });
-  if (subject==='code') add(90, { id:topic.id+'-c', kind:'code', x:-40, y:-90, w:300, who:T, text:'for i in range(5):\n    print(i * i)  # квадраты' });
-  if (subject==='es') add(90, { id:topic.id+'-k', kind:'card', x:-40, y:-90, w:180, who:T, lang:'es', front:'hablar', back:'говорить' });
-  if (subject==='en') add(90, { id:topic.id+'-k', kind:'card', x:-40, y:-90, w:200, who:T, lang:'en', front:'I have seen it', back:'я это видел(а): результат важен сейчас' });
-  add(240, { id:topic.id+'-i', kind:'ink', x:-300, y:70, who:S, text:'Мой вариант…' });
-  return ev;
-}
+const seedFor = () => [];
 
 /* ---------- state ---------- */
 let student = 'anya', role = 'teacher', tool = 'select', screen = 'board', leading = false;
@@ -404,7 +347,8 @@ let cam = { x:0, y:0, z:1 };
 const boards = {}; let boardId = null; let cur = null; const flipped = new Set();
 let uid = 0; const nid = () => 'n' + (++uid);
 
-function topicById(id){ for (const k in STUDENTS) for (const isl of STUDENTS[k].islands) for (const t of isl.topics) if (t.id===id) return { t, isl, st:k }; }
+const DRAFT = { t:{ id:'draft', title:'Новая доска', st:'now' }, isl:{ name:'Без темы', subject:'' } };
+function topicById(id){ if (id==='draft') return { ...DRAFT, st:student }; for (const k in STUDENTS) for (const isl of STUDENTS[k].islands) for (const t of isl.topics) if (t.id===id) return { t, isl, st:k }; }
 const B = () => boards[boardId];
 const br = () => B().branches.find(x => x.id === B().cur);
 const live = () => B().pos == null;
@@ -489,7 +433,7 @@ function renderTimeline(){
   $('#pastbar').hidden = live();
   $('#past-t').textContent = `Запись урока · ${fmt(p ? all[p-1].t : 0)} из ${fmt(n ? all[n-1].t : 0)}. Правки выключены`;
   $('#chips').innerHTML = B().branches.map(x => `<button class="chip" data-br="${x.id}" aria-pressed="${x.id===B().cur}">${icon('i-branch')}${esc(x.name)}${x.from!=null?` <span class="mono">от ${fmt(x.from)}</span>`:''}</button>`).join('');
-  peer.style.display = live() && screen==='board' ? '' : 'none';
+  peer.style.display = live() && screen==='board' && cur && cur.blocks.size ? '' : 'none';
 }
 function renderChrome(){
   const app = $('#app'); app.dataset.screen = screen; app.dataset.role = role;
@@ -596,7 +540,7 @@ vp.addEventListener('pointerdown', e => {
     act = { k:'pan', sx:e.clientX, sy:e.clientY, cx:cam.x, cy:cam.y }; vp.classList.add('panning'); return;
   }
   if (tool === 'select'){
-    act = { k:'drag', el:blk, id:blk.dataset.id, sx:e.clientX, sy:e.clientY, ox:parseFloat(blk.style.left), oy:parseFloat(blk.style.top), moved:false };
+    act = { k:'tap', el:blk, id:blk.dataset.id };
   } else if (tool === 'pen' || tool === 'line'){
     if (!live()) return push({});
     const path = document.createElementNS('http://www.w3.org/2000/svg','path'); path.setAttribute('class','s-'+strokeColor()); ink.appendChild(path);
@@ -615,22 +559,15 @@ vp.addEventListener('pointerdown', e => {
 window.addEventListener('pointermove', e => {
   if (!act) return;
   if (act.k === 'pan'){ cam.x = act.cx + e.clientX - act.sx; cam.y = act.cy + e.clientY - act.sy; applyCam(); }
-  else if (act.k === 'drag'){
-    const dx = (e.clientX-act.sx)/cam.z, dy = (e.clientY-act.sy)/cam.z;
-    if (!act.moved && Math.hypot(e.clientX-act.sx, e.clientY-act.sy) > 3) act.moved = true;
-    if (act.moved && live()){ act.el.style.left = act.ox+dx+'px'; act.el.style.top = act.oy+dy+'px'; act.el.classList.add('drag'); }
-  } else if (act.k === 'pen'){ const p = toWorld(e); act.pts.push([p.x,p.y]); act.path.setAttribute('d', pathD(act.pts)); }
+  else if (act.k === 'pen'){ const p = toWorld(e); act.pts.push([p.x,p.y]); act.path.setAttribute('d', pathD(act.pts)); }
   else if (act.k === 'line'){ const p = toWorld(e); act.pts[1] = [p.x,p.y]; act.path.setAttribute('d', pathD(act.pts)); }
   else if (act.k === 'erase') eraseAt(toWorld(e));
   else if (act.k === 'laser') laserAdd(e);
 });
 window.addEventListener('pointerup', () => {
   if (!act) return; const a = act; act = null; vp.classList.remove('panning');
-  if (a.k === 'drag'){
-    if (a.moved){
-      if (live()) push({ type:'move', id:a.id, x:Math.round(parseFloat(a.el.style.left)), y:Math.round(parseFloat(a.el.style.top)) });
-      else push({});
-    } else if (a.el.classList.contains('k-card')){ flipped.has(a.id) ? flipped.delete(a.id) : flipped.add(a.id); render(); }
+  if (a.k === 'tap'){
+    if (a.el.classList.contains('k-card')){ flipped.has(a.id) ? flipped.delete(a.id) : flipped.add(a.id); render(); }
   } else if (a.k === 'pen' || a.k === 'line'){
     if (a.pts.length > 1) push({ type:'stroke', who:role, color:strokeColor(), pts:a.pts.filter((_,i)=>i%2===0 || i===a.pts.length-1).map(q=>[Math.round(q[0]*10)/10, Math.round(q[1]*10)/10]) });
     else a.path.remove();
@@ -732,7 +669,7 @@ function openBoard(id){
   requestAnimationFrame(() => { sizeLaser(); fit(); });
 }
 function go(s){
-  if (s === 'board' && !boardId) return openBoard('m2');
+  if (s === 'board' && !boardId) return openBoard('draft');
   screen = s; stopPlay(); render();
   if (s === 'board') requestAnimationFrame(() => { sizeLaser(); fit(); });
   else renderMap();
@@ -758,7 +695,7 @@ function renderMap(){
   const all = S.islands.flatMap(i => i.topics), done = all.filter(t => t.st==='done').length;
   const now = all.filter(t => t.st==='now').map(t => t.title);
   $('#map-title').textContent = `Карта обучения: ${S.name}`;
-  $('#map-sum').innerHTML = `Пройдено <b>${done} из ${all.length}</b> тем. Сейчас: ${now.map(esc).join(', ')}. Следующий урок: <b>${esc(S.next)}</b>.`;
+  $('#map-sum').innerHTML = all.length ? `Пройдено <b>${done} из ${all.length}</b> тем. Сейчас: ${now.map(esc).join(', ')}.` : 'Тем пока нет. Здесь появятся предметы ученика и темы уроков.';
   let svg = `<svg viewBox="0 0 980 560" width="980" height="560" aria-hidden="true"><defs>
     <pattern id="sea" width="28" height="16" patternUnits="userSpaceOnUse"><path d="M2 9q3.5-3 7 0t7 0" fill="none" style="stroke:var(--line)" stroke-width="1.2" stroke-linecap="round"/></pattern>
     <pattern id="paper" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0H0V20" fill="none" style="stroke:var(--grid)" stroke-width="1"/></pattern></defs>
@@ -779,13 +716,14 @@ function renderMap(){
   svg += '</svg>';
   const nodes = S.islands.flatMap(isl => isl.topics.map(t =>
     `<button class="node st-${t.st}" data-topic="${t.id}" style="left:${t.p[0]}px;top:${t.p[1]}px"><i class="dot ${t.st==='next'?'':t.st}"></i><span><span class="t">${esc(t.title)}</span><span class="m" style="display:block">${META[t.st](t)}</span></span></button>`)).join('');
-  $('#map-world').innerHTML = svg + nodes;
+  const empty = all.length ? '' : `<button class="node" data-topic="draft" style="left:490px;top:280px"><span><span class="t">Пустая карта</span><span class="m" style="display:block">открыть пустую доску</span></span></button>`;
+  $('#map-world').innerHTML = svg + nodes + empty;
 }
 $('#map-world').addEventListener('click', e => { const n = e.target.closest('[data-topic]'); if (n) openBoard(n.dataset.topic); });
 $('#students').addEventListener('click', e => { const b = e.target.closest('[data-st]'); if (b){ student = b.dataset.st; renderMap(); renderChrome(); } });
 
 window.addEventListener('resize', () => { if (screen==='board') sizeLaser(); });
 
-openBoard('m2');
+openBoard('draft');
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (screen==='board') fit(); });
 </script>
