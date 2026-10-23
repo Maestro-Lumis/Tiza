@@ -1,3 +1,13 @@
+:root {
+  --ink: #25231f;
+  --ink-2: #6b6559;
+  --accent: #ae4f29;
+  --wood: #d6c4a1;
+  --wood-top: #e4d5b7;
+  --wood-dark: #b8a27a;
+  --shade: rgba(37, 35, 31, 0.18);
+}
+
 html,
 body {
   height: 100%;
@@ -6,6 +16,13 @@ body {
 
 body {
   overflow: hidden;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color: var(--ink);
+}
+
+button {
+  font: inherit;
+  color: inherit;
 }
 
 #board {
@@ -16,47 +33,130 @@ body {
   cursor: crosshair;
 }
 
-/* Мелки лежат внизу по центру; выбранный приподнят. */
-#palette {
+/* ---------- полка ---------- */
+
+.tray {
   position: fixed;
-  left: 50%;
-  bottom: 20px;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: flex-end;
-  gap: 12px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
 }
 
-#palette button {
-  width: 48px;
-  height: 14px;
+/* Верх полки: здесь лежат мелки и губка. Немного заходит на дерево, чтобы они «лежали». */
+.shelf {
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: -10px;
+  position: relative;
+  z-index: 1;
+}
+
+.shelf button {
+  pointer-events: auto;
   padding: 0;
   border: 0;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.shelf button:hover {
+  transform: translateY(-3px);
+}
+
+.shelf button[aria-pressed='true'] {
+  transform: translateY(-12px);
+  box-shadow: 0 9px 6px var(--shade);
+}
+
+.shelf button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.chalk {
+  width: 48px;
+  height: 14px;
   border-radius: 6px;
   background: var(--chalk);
-  cursor: pointer;
-  transition: transform 0.15s;
 }
 
 /* Губка: деревянная спинка и войлок снизу. */
-#palette .sponge {
-  width: 52px;
-  height: 22px;
-  margin-left: 8px;
+.sponge {
+  width: 56px;
+  height: 24px;
+  margin-left: 12px;
   border-radius: 4px;
   background: linear-gradient(#b98a55 0 55%, #55524b 55% 100%);
 }
 
-#palette button:hover {
-  transform: translateY(-3px);
+/* Дерево полки: светлая верхняя грань и передняя грань с кнопками. */
+.ledge {
+  pointer-events: auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px 16px 10px;
+  background: linear-gradient(var(--wood-top) 0 10px, var(--wood-dark) 10px 11px, var(--wood) 11px);
 }
 
-#palette button[aria-pressed='true'] {
-  transform: translateY(-10px);
-  box-shadow: 0 8px 6px rgba(37, 35, 31, 0.18);
+.group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
-#palette button:focus-visible {
-  outline: 2px solid #ae4f29;
-  outline-offset: 3px;
+.icon,
+.zoom {
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  cursor: pointer;
+}
+
+.icon {
+  width: 32px;
+  display: grid;
+  place-items: center;
+}
+
+.icon svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.zoom {
+  min-width: 56px;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+
+.icon:hover,
+.zoom:hover {
+  background: var(--wood-top);
+}
+
+.icon:focus-visible,
+.zoom:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Нечего отменять или возвращать: кнопка бледнее, но остаётся на месте. */
+.icon.is-off {
+  color: var(--ink-2);
+  opacity: 0.5;
+  cursor: default;
+}
+
+.icon.is-off:hover {
+  background: none;
 }

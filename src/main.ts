@@ -13,6 +13,9 @@ const STORAGE_KEY = 'tiza:board';
 const canvas = document.querySelector<HTMLCanvasElement>('#board')!;
 const ctx = canvas.getContext('2d')!;
 const palette = document.querySelector<HTMLDivElement>('#palette')!;
+const undoButton = document.querySelector<HTMLButtonElement>('#undo')!;
+const redoButton = document.querySelector<HTMLButtonElement>('#redo')!;
+const zoomButton = document.querySelector<HTMLButtonElement>('#zoom-reset')!;
 
 /* ---------- сохранение в браузере ---------- */
 
@@ -86,6 +89,14 @@ function draw(): void {
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   for (const s of strokes) drawStroke(s);
+  updateLedge();
+}
+
+/** Кнопки на полке: бледные отмена и возврат, если нечего делать, и текущий масштаб. */
+function updateLedge(): void {
+  undoButton.classList.toggle('is-off', undoStack.length === 0);
+  redoButton.classList.toggle('is-off', redoStack.length === 0);
+  zoomButton.textContent = `${Math.round(camera.zoom * 100)}%`;
 }
 
 /** Точка на экране (в пикселях от левого верхнего угла холста). */
@@ -112,6 +123,17 @@ function zoomAt(factor: number, at: Point): void {
   draw();
 }
 
+/** Масштаб от центра экрана — для кнопок на полке. */
+function zoomCenter(factor: number): void {
+  zoomAt(factor, { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 });
+}
+
+/** Исходное положение доски и масштаб 100%. */
+function resetView(): void {
+  Object.assign(camera, { x: 0, y: 0, zoom: 1 });
+  draw();
+}
+
 function updateCursor(): void {
   if (panning) canvas.style.cursor = 'grabbing';
   else if (spaceHeld) canvas.style.cursor = 'grab';
@@ -132,6 +154,7 @@ function apply(change: Change, reverse = false): void {
 function record(change: Change): void {
   undoStack.push(change);
   redoStack.length = 0;
+  updateLedge();
 }
 
 function undo(): void {
@@ -258,6 +281,12 @@ palette.addEventListener('click', (e) => {
   if (button) select(button);
 });
 
+undoButton.addEventListener('click', undo);
+redoButton.addEventListener('click', redo);
+document.querySelector('#zoom-in')!.addEventListener('click', () => zoomCenter(1.25));
+document.querySelector('#zoom-out')!.addEventListener('click', () => zoomCenter(1 / 1.25));
+zoomButton.addEventListener('click', resetView);
+
 /* ---------- клавиатура ---------- */
 
 window.addEventListener('keydown', (e) => {
@@ -279,8 +308,7 @@ window.addEventListener('keydown', (e) => {
   // Ctrl/⌘ + 0 — вернуть доску на место и масштаб 100%.
   if (mod && e.key === '0') {
     e.preventDefault();
-    Object.assign(camera, { x: 0, y: 0, zoom: 1 });
-    draw();
+    resetView();
     return;
   }
   if (mod || e.altKey) return;
