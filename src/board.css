@@ -1,28 +1,6 @@
-:root {
-  --ink: #25231f;
-  --ink-2: #6b6559;
-  --accent: #ae4f29;
-  --wood: #d6c4a1;
-  --wood-top: #e4d5b7;
-  --wood-dark: #b8a27a;
-  --shade: rgba(37, 35, 31, 0.18);
-}
-
-html,
-body {
-  height: 100%;
-  margin: 0;
-}
-
+/* Доска на весь экран: страница не прокручивается. */
 body {
   overflow: hidden;
-  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-  color: var(--ink);
-}
-
-button {
-  font: inherit;
-  color: inherit;
 }
 
 #board {

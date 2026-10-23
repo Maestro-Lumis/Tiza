@@ -3,43 +3,30 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Tiza</title>
-    <link rel="stylesheet" href="/src/styles.css" />
+    <title>Tiza: ученики</title>
+    <link rel="stylesheet" href="/src/base.css" />
+    <link rel="stylesheet" href="/src/pages.css" />
   </head>
   <body>
-    <canvas id="board"></canvas>
+    <main class="page">
+      <header>
+        <p class="logo">tiza</p>
+        <h1>Мои ученики</h1>
+      </header>
 
-    <!-- Полка как под школьной доской: сверху лежат мелки и губка, на передней грани кнопки. -->
-    <div class="tray">
-      <div id="palette" class="shelf" role="toolbar" aria-label="Инструменты">
-        <button class="chalk" data-color="#25231f" style="--chalk: #25231f" aria-pressed="true" aria-label="Мел, графит (1)" title="Графит (1)"></button>
-        <button class="chalk" data-color="#ae4f29" style="--chalk: #ae4f29" aria-pressed="false" aria-label="Мел, терракота (2)" title="Терракота (2)"></button>
-        <button class="chalk" data-color="#33589e" style="--chalk: #33589e" aria-pressed="false" aria-label="Мел, синий (3)" title="Синий (3)"></button>
-        <button class="sponge" data-tool="eraser" aria-pressed="false" aria-label="Губка: стереть линию (E)" title="Губка (E)"></button>
-      </div>
+      <ul id="students" class="students"></ul>
+      <p id="empty" class="empty" hidden>Учеников пока нет. Добавь первого: у него появятся свои темы и доски.</p>
 
-      <div class="ledge">
-        <div class="group">
-          <button id="undo" class="icon" aria-label="Отменить (Ctrl+Z)" title="Отменить (Ctrl+Z)">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14L4 9l5-5" /><path d="M4 9h10.5a5.5 5.5 0 010 11H11" /></svg>
-          </button>
-          <button id="redo" class="icon" aria-label="Вернуть (Ctrl+Shift+Z)" title="Вернуть (Ctrl+Shift+Z)">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 14l5-5-5-5" /><path d="M20 9H9.5a5.5 5.5 0 000 11H13" /></svg>
-          </button>
+      <form id="add" class="add" novalidate>
+        <label for="name">Новый ученик</label>
+        <div class="row">
+          <input id="name" name="name" autocomplete="off" placeholder="Андрей" />
+          <button type="submit">Добавить ученика</button>
         </div>
+        <p id="error" class="error" hidden>Впиши имя ученика.</p>
+      </form>
+    </main>
 
-        <div class="group">
-          <button id="zoom-out" class="icon" aria-label="Отдалить" title="Отдалить">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg>
-          </button>
-          <button id="zoom-reset" class="zoom" aria-label="Вернуть масштаб 100% (Ctrl+0)" title="Вернуть масштаб 100% (Ctrl+0)">100%</button>
-          <button id="zoom-in" class="icon" aria-label="Приблизить" title="Приблизить">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <script type="module" src="/src/main.ts"></script>
+    <script type="module" src="/src/home.ts"></script>
   </body>
 </html>

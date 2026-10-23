@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tiza: ученик</title>
+    <link rel="stylesheet" href="/src/base.css" />
+    <link rel="stylesheet" href="/src/pages.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header>
+        <a class="back" href="/">← Мои ученики</a>
+        <h1 id="title">Дорожная карта</h1>
+      </header>
+
+      <div id="found">
+        <ol id="topics" class="topics"></ol>
+        <p id="empty" class="empty" hidden>Тем пока нет. Добавь первую: у каждой темы будет своя доска.</p>
+
+        <form id="add" class="add" novalidate>
+          <label for="topic">Новая тема</label>
+          <div class="row">
+            <input id="topic" name="topic" autocomplete="off" placeholder="Квадратные уравнения" />
+            <button type="submit">Добавить тему</button>
+          </div>
+          <p id="error" class="error" hidden>Впиши название темы.</p>
+        </form>
+      </div>
+
+      <p id="missing" class="empty" hidden>Такого ученика нет. Вернись к списку учеников и выбери его там.</p>
+    </main>
+
+    <script type="module" src="/src/student.ts"></script>
+  </body>
+</html>
