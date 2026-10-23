@@ -5,13 +5,35 @@ type Tool = 'pen' | 'eraser';
 type Change = { kind: 'add' | 'remove'; strokes: Stroke[] };
 
 const ERASER_RADIUS = 12;
+/** Ключ, под которым доска лежит в хранилище браузера. */
+const STORAGE_KEY = 'tiza:board';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#board')!;
 const ctx = canvas.getContext('2d')!;
 const palette = document.querySelector<HTMLDivElement>('#palette')!;
 
+/* ---------- сохранение в браузере ---------- */
+
+/** Достаёт сохранённые линии; если их нет или данные испорчены, доска пустая. */
+function load(): Stroke[] {
+  try {
+    const data = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]');
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+
+function save(): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(strokes));
+  } catch {
+    // Хранилище недоступно (приватный режим, нет места): рисовать можно и без сохранения.
+  }
+}
+
 /** Все нарисованные линии. */
-const strokes: Stroke[] = [];
+const strokes: Stroke[] = load();
 /** Линия, которую рисуем прямо сейчас. */
 let current: Stroke | null = null;
 /** Линии, стёртые текущим движением губки. */
@@ -77,6 +99,7 @@ function undo(): void {
   apply(change, true);
   redoStack.push(change);
   draw();
+  save();
 }
 
 function redo(): void {
@@ -85,6 +108,7 @@ function redo(): void {
   apply(change);
   undoStack.push(change);
   draw();
+  save();
 }
 
 /* ---------- губка ---------- */
@@ -146,10 +170,12 @@ canvas.addEventListener('pointermove', (e) => {
 });
 
 function finish(): void {
+  const changed = current !== null || !!erased?.length;
   if (current) record({ kind: 'add', strokes: [current] });
   if (erased?.length) record({ kind: 'remove', strokes: erased });
   current = null;
   erased = null;
+  if (changed) save();
 }
 
 canvas.addEventListener('pointerup', finish);
