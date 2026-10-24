@@ -138,3 +138,37 @@ body {
 .icon.is-off:hover {
   background: none;
 }
+
+/* ---------- над доской ---------- */
+
+/* Ссылка назад и название темы лежат прямо на бумаге в левом верхнем углу. */
+.board-header {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  pointer-events: none;
+}
+
+#back {
+  pointer-events: auto;
+  font-size: 14px;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+#back:hover {
+  text-decoration: underline;
+}
+
+#back:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+#topic-title {
+  font-size: 18px;
+  font-weight: 600;
+}

@@ -1,3 +1,5 @@
+import { getStudent } from './students';
+
 type Point = { x: number; y: number };
 type Stroke = { color: string; points: Point[] };
 type Tool = 'pen' | 'eraser';
@@ -7,8 +9,15 @@ type Change = { kind: 'add' | 'remove'; strokes: Stroke[] };
 const ERASER_RADIUS = 12;
 const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 5;
-/** Ключ, под которым доска лежит в хранилище браузера. */
-const STORAGE_KEY = 'tiza:board';
+/** Чья это доска и какой темы: board.html?student=andrey&topic=… */
+const params = new URLSearchParams(location.search);
+const studentId = params.get('student');
+const topicId = params.get('topic');
+/**
+ * Ключ, под которым доска лежит в хранилище браузера: у каждой темы свой.
+ * Без ученика и темы открывается старая общая доска.
+ */
+const STORAGE_KEY = studentId && topicId ? `tiza:board:${studentId}:${topicId}` : 'tiza:board';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#board')!;
 const ctx = canvas.getContext('2d')!;
@@ -16,6 +25,22 @@ const palette = document.querySelector<HTMLDivElement>('#palette')!;
 const undoButton = document.querySelector<HTMLButtonElement>('#undo')!;
 const redoButton = document.querySelector<HTMLButtonElement>('#redo')!;
 const zoomButton = document.querySelector<HTMLButtonElement>('#zoom-reset')!;
+
+/* ---------- над доской: куда вернуться и какая тема ---------- */
+
+function showHeader(): void {
+  const back = document.querySelector<HTMLAnchorElement>('#back')!;
+  const title = document.querySelector<HTMLSpanElement>('#topic-title')!;
+  const student = studentId ? getStudent(studentId) : undefined;
+  const topic = student?.topics?.find((t) => t.id === topicId);
+  if (!student) return; // общая доска: ссылка ведёт к списку учеников, как в разметке
+  back.href = `/student.html?id=${encodeURIComponent(student.id)}`;
+  back.textContent = `← ${student.name}`;
+  title.textContent = topic?.title ?? '';
+  document.title = topic ? `Tiza: ${topic.title}` : `Tiza: ${student.name}`;
+}
+
+showHeader();
 
 /* ---------- сохранение в браузере ---------- */
 
