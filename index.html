@@ -4,12 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Tiza: ученики</title>
+    <!-- Выбранная тема ставится до отрисовки, чтобы страница не мигала светлым. -->
+    <script>try{const t=localStorage.getItem("tiza:theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
     <link rel="stylesheet" href="/src/base.css" />
     <link rel="stylesheet" href="/src/pages.css" />
   </head>
   <body>
     <main class="page">
       <header>
+        <button class="theme-toggle" aria-label="Сменить тему"></button>
         <p class="logo">tiza</p>
         <h1>Мои ученики</h1>
       </header>

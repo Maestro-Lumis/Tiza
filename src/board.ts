@@ -1,4 +1,5 @@
 import { getStudent } from './students';
+import './theme';
 
 type Point = { x: number; y: number };
 type Stroke = { color: string; points: Point[] };
@@ -96,17 +97,40 @@ function resize(): void {
 }
 
 function drawStroke(s: Stroke): void {
-  ctx.strokeStyle = s.color;
+  ctx.strokeStyle = chalkColors[s.color] ?? s.color;
   ctx.beginPath();
   ctx.moveTo(s.points[0].x, s.points[0].y);
   for (const p of s.points) ctx.lineTo(p.x, p.y);
   ctx.stroke();
 }
 
+/* ---------- цвета темы ---------- */
+
+/**
+ * Цвет линии хранится кодом мела (#25231f — графит и т. д.),
+ * а рисуется цветом текущей темы: в тёмной теме графит становится белым мелом.
+ */
+const CHALK_VARS: Record<string, string> = {
+  '#25231f': '--chalk-ink',
+  '#ae4f29': '--chalk-red',
+  '#33589e': '--chalk-blue',
+};
+const chalkColors: Record<string, string> = {};
+let paperColor = '';
+
+/** Берёт цвета из CSS текущей темы (светлой или тёмной). */
+function readTheme(): void {
+  const css = getComputedStyle(document.documentElement);
+  paperColor = css.getPropertyValue('--paper').trim();
+  for (const [code, name] of Object.entries(CHALK_VARS)) {
+    chalkColors[code] = css.getPropertyValue(name).trim();
+  }
+}
+
 function draw(): void {
   // Фон заливаем в координатах экрана, линии рисуем в координатах доски.
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.fillStyle = '#f6f1e5';
+  ctx.fillStyle = paperColor;
   ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
   ctx.setTransform(dpr * camera.zoom, 0, 0, dpr * camera.zoom, dpr * camera.x, dpr * camera.y);
 
@@ -358,4 +382,11 @@ window.addEventListener('keyup', (e) => {
 });
 
 window.addEventListener('resize', resize);
+// Сменили тему кнопкой или в системе — перекрашиваем доску сразу, без перезагрузки.
+window.addEventListener('themechange', () => {
+  readTheme();
+  draw();
+});
+
+readTheme();
 resize();

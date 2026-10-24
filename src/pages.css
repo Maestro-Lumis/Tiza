@@ -4,6 +4,22 @@
   padding: 48px 16px;
 }
 
+/* Кнопка темы в правом верхнем углу шапки. */
+.page header {
+  position: relative;
+}
+
+.page .theme-toggle {
+  position: absolute;
+  top: -6px;
+  right: 0;
+  color: var(--ink-2);
+}
+
+.page .theme-toggle:hover {
+  color: var(--ink);
+}
+
 .logo {
   margin: 0;
   font-size: 15px;

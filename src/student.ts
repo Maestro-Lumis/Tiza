@@ -1,4 +1,5 @@
 import { addTopic, getStudent, setTopicStatus, type Topic, type TopicStatus } from './students';
+import './theme';
 
 const studentId = new URLSearchParams(location.search).get('id') ?? '';
 

@@ -1,4 +1,5 @@
 import { addStudent, loadStudents } from './students';
+import './theme';
 
 const list = document.querySelector<HTMLUListElement>('#students')!;
 const empty = document.querySelector<HTMLParagraphElement>('#empty')!;
