@@ -41,19 +41,87 @@ h1 {
   gap: 8px;
 }
 
-.students a {
-  display: block;
-  padding: 14px 16px;
+.students li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 16px;
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 10px;
+}
+
+.students li:hover {
+  border-color: var(--ink-2);
+}
+
+.students a {
+  flex: 1;
+  padding: 14px 0;
   color: inherit;
   font-size: 17px;
   text-decoration: none;
 }
 
-.students a:hover {
-  border-color: var(--ink-2);
+/* ---------- переименовать и удалить ---------- */
+
+/* Кнопки видны при наведении на строку или когда на них фокус с клавиатуры. */
+.row-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+li:hover .row-actions,
+.row-actions:focus-within {
+  opacity: 1;
+}
+
+.row-action {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.row-action:hover {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.row-action svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.row-action:focus-visible,
+.row-edit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Поле переименования встаёт на место названия. */
+.row-edit {
+  flex: 1;
+  min-width: 0;
+  margin: 8px 0;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  font-size: 17px;
 }
 
 .empty {

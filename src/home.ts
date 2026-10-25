@@ -1,4 +1,5 @@
-import { addStudent, loadStudents } from './students';
+import { addRowActions } from './row-actions';
+import { addStudent, deleteStudent, loadStudents, renameStudent } from './students';
 import './theme';
 
 const list = document.querySelector<HTMLUListElement>('#students')!;
@@ -17,6 +18,12 @@ function render(): void {
       link.textContent = s.name;
       const item = document.createElement('li');
       item.append(link);
+      addRowActions(item, link, {
+        rename: (name) => renameStudent(s.id, name),
+        remove: () => deleteStudent(s.id),
+        deleteQuestion: `Удалить ученика «${s.name}» вместе со всеми темами и досками? Вернуть не получится.`,
+        refresh: render,
+      });
       return item;
     }),
   );

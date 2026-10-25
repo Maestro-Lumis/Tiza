@@ -1,4 +1,4 @@
-import { getStudent } from './students';
+import { boardKey, getStudent } from './students';
 import './theme';
 
 type Point = { x: number; y: number };
@@ -18,7 +18,7 @@ const topicId = params.get('topic');
  * Ключ, под которым доска лежит в хранилище браузера: у каждой темы свой.
  * Без ученика и темы открывается старая общая доска.
  */
-const STORAGE_KEY = studentId && topicId ? `tiza:board:${studentId}:${topicId}` : 'tiza:board';
+const STORAGE_KEY = studentId && topicId ? boardKey(studentId, topicId) : 'tiza:board';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#board')!;
 const ctx = canvas.getContext('2d')!;

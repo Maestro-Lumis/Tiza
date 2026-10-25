@@ -67,6 +67,49 @@ export function addTopic(studentId: string, title: string): void {
   });
 }
 
+/* ---------- переименование и удаление ---------- */
+
+/** Ключ доски темы — тот же, что использует board.ts. */
+export function boardKey(studentId: string, topicId: string): string {
+  return `tiza:board:${studentId}:${topicId}`;
+}
+
+function removeBoard(studentId: string, topicId: string): void {
+  try {
+    localStorage.removeItem(boardKey(studentId, topicId));
+  } catch {
+    // Хранилище недоступно: удалять нечего.
+  }
+}
+
+/** Меняет только имя: адрес ученика (andrey) остаётся прежним, ссылки не ломаются. */
+export function renameStudent(id: string, name: string): void {
+  updateStudent(id, (s) => (s.name = name));
+}
+
+/** Удаляет ученика вместе со всеми его темами и досками. */
+export function deleteStudent(id: string): void {
+  const students = loadStudents();
+  const student = students.find((s) => s.id === id);
+  for (const t of student?.topics ?? []) removeBoard(id, t.id);
+  saveStudents(students.filter((s) => s.id !== id));
+}
+
+export function renameTopic(studentId: string, topicId: string, title: string): void {
+  updateStudent(studentId, (s) => {
+    const topic = s.topics?.find((t) => t.id === topicId);
+    if (topic) topic.title = title;
+  });
+}
+
+/** Удаляет тему из дорожной карты вместе с её доской. */
+export function deleteTopic(studentId: string, topicId: string): void {
+  updateStudent(studentId, (s) => {
+    s.topics = (s.topics ?? []).filter((t) => t.id !== topicId);
+  });
+  removeBoard(studentId, topicId);
+}
+
 export function setTopicStatus(studentId: string, topicId: string, status: TopicStatus): void {
   updateStudent(studentId, (s) => {
     const topic = s.topics?.find((t) => t.id === topicId);

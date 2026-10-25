@@ -1,4 +1,13 @@
-import { addTopic, getStudent, setTopicStatus, type Topic, type TopicStatus } from './students';
+import { addRowActions } from './row-actions';
+import {
+  addTopic,
+  deleteTopic,
+  getStudent,
+  renameTopic,
+  setTopicStatus,
+  type Topic,
+  type TopicStatus,
+} from './students';
 import './theme';
 
 const studentId = new URLSearchParams(location.search).get('id') ?? '';
@@ -30,6 +39,12 @@ function topicItem(t: Topic): HTMLLIElement {
 
   const item = document.createElement('li');
   item.append(link, status);
+  addRowActions(item, link, {
+    rename: (name) => renameTopic(studentId, t.id, name),
+    remove: () => deleteTopic(studentId, t.id),
+    deleteQuestion: `Удалить тему «${t.title}» вместе с её доской? Вернуть не получится.`,
+    refresh: render,
+  });
   return item;
 }
 
