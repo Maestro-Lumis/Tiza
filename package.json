@@ -21,5 +21,8 @@
   "devDependencies": {
     "typescript": "^5.9.3",
     "vite": "^6.4.4"
+  },
+  "dependencies": {
+    "mammoth": "^1.13.0"
   }
 }

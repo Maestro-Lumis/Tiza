@@ -218,3 +218,17 @@ body {
 .notice[hidden] {
   display: none;
 }
+
+/* Листок с заданиями: бумага со строчками и синей полоской Word слева. */
+.doc {
+  width: 26px;
+  height: 32px;
+  margin-left: 8px;
+  border-radius: 2px;
+  background:
+    linear-gradient(var(--line) 0 0) 7px 8px / 14px 2px no-repeat,
+    linear-gradient(var(--line) 0 0) 7px 14px / 14px 2px no-repeat,
+    linear-gradient(var(--line) 0 0) 7px 20px / 10px 2px no-repeat,
+    linear-gradient(90deg, var(--chalk-blue) 0 3px, var(--card) 3px);
+  box-shadow: 0 0 0 1px var(--wood-dark);
+}

@@ -54,4 +54,4 @@ export function contains(r: Rect, p: { x: number; y: number }): boolean {
   return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
 }
 
-export const rectOf = (i: BoardImage): Rect => ({ x: i.x, y: i.y, w: i.w, h: i.h });
+export const rectOf = (i: Rect): Rect => ({ x: i.x, y: i.y, w: i.w, h: i.h });
