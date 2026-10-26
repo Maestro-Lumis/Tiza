@@ -1,15 +1,25 @@
+import { contains, imageElement, readImage, rectOf, type BoardImage, type Rect } from './images';
 import { boardKey, getStudent } from './students';
 import './theme';
 
 type Point = { x: number; y: number };
 type Stroke = { color: string; points: Point[] };
-type Tool = 'pen' | 'eraser';
-/** Одно действие для истории: линии добавили или стёрли. */
-type Change = { kind: 'add' | 'remove'; strokes: Stroke[] };
+type Tool = 'pen' | 'eraser' | 'pointer';
+/**
+ * Одно действие для истории:
+ * линии или картинки добавили / стёрли, либо картинку сдвинули или изменили её размер.
+ */
+type Change =
+  | { kind: 'add' | 'remove'; strokes: Stroke[]; images?: BoardImage[] }
+  | { kind: 'move'; image: BoardImage; from: Rect; to: Rect };
 
 const ERASER_RADIUS = 12;
 const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 5;
+/** Размер уголка для изменения размера картинки — в пикселях экрана. */
+const HANDLE = 12;
+/** Меньше этой ширины картинку не сжать. */
+const MIN_IMAGE = 24;
 /** Чья это доска и какой темы: board.html?student=andrey&topic=… */
 const params = new URLSearchParams(location.search);
 const studentId = params.get('student');
@@ -26,6 +36,8 @@ const palette = document.querySelector<HTMLDivElement>('#palette')!;
 const undoButton = document.querySelector<HTMLButtonElement>('#undo')!;
 const redoButton = document.querySelector<HTMLButtonElement>('#redo')!;
 const zoomButton = document.querySelector<HTMLButtonElement>('#zoom-reset')!;
+const fileInput = document.querySelector<HTMLInputElement>('#image-file')!;
+const notice = document.querySelector<HTMLParagraphElement>('#notice')!;
 
 /* ---------- над доской: куда вернуться и какая тема ---------- */
 
@@ -43,28 +55,46 @@ function showHeader(): void {
 
 showHeader();
 
+/** Короткое сообщение над доской; пустая строка его прячет. */
+function showNotice(text: string): void {
+  notice.textContent = text;
+  notice.hidden = !text;
+}
+
 /* ---------- сохранение в браузере ---------- */
 
-/** Достаёт сохранённые линии; если их нет или данные испорчены, доска пустая. */
-function load(): Stroke[] {
+/**
+ * Достаёт сохранённую доску; если её нет или данные испорчены, доска пустая.
+ * Старые доски хранились просто списком линий — их тоже понимаем.
+ */
+function load(): { strokes: Stroke[]; images: BoardImage[] } {
   try {
     const data = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]');
-    return Array.isArray(data) ? data : [];
+    if (Array.isArray(data)) return { strokes: data, images: [] };
+    return {
+      strokes: Array.isArray(data.strokes) ? data.strokes : [],
+      images: Array.isArray(data.images) ? data.images : [],
+    };
   } catch {
-    return [];
+    return { strokes: [], images: [] };
   }
 }
 
 function save(): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(strokes));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ strokes, images }));
+    showNotice('');
   } catch {
-    // Хранилище недоступно (приватный режим, нет места): рисовать можно и без сохранения.
+    // Чаще всего кончилось место: картинки занимают много. Рисовать можно, но не сохранится.
+    showNotice('В браузере не хватает места: последние изменения не сохранятся. Удали лишние картинки.');
   }
 }
 
+const board = load();
 /** Все нарисованные линии. */
-const strokes: Stroke[] = load();
+const strokes: Stroke[] = board.strokes;
+/** Картинки на доске; они лежат под линиями, чтобы по скриншоту можно было рисовать. */
+const images: BoardImage[] = board.images;
 /** Линия, которую рисуем прямо сейчас. */
 let current: Stroke | null = null;
 /** Линии, стёртые текущим движением губки. */
@@ -72,6 +102,11 @@ let erased: Stroke[] | null = null;
 /** Цвет мела, выбранный на палитре. */
 let color = palette.querySelector<HTMLButtonElement>('[aria-pressed="true"]')!.dataset.color!;
 let tool: Tool = 'pen';
+
+/** Выбранная указкой картинка. */
+let selected: BoardImage | null = null;
+/** Что делаем с картинкой, пока зажата кнопка мыши: двигаем или меняем размер. */
+let dragging: { mode: 'move' | 'resize'; start: Point; from: Rect } | null = null;
 
 const undoStack: Change[] = [];
 const redoStack: Change[] = [];
@@ -117,27 +152,51 @@ const CHALK_VARS: Record<string, string> = {
 };
 const chalkColors: Record<string, string> = {};
 let paperColor = '';
+let accentColor = '';
 
 /** Берёт цвета из CSS текущей темы (светлой или тёмной). */
 function readTheme(): void {
   const css = getComputedStyle(document.documentElement);
   paperColor = css.getPropertyValue('--paper').trim();
+  accentColor = css.getPropertyValue('--accent').trim();
   for (const [code, name] of Object.entries(CHALK_VARS)) {
     chalkColors[code] = css.getPropertyValue(name).trim();
   }
 }
 
+/** Уголок для изменения размера — правый нижний угол картинки. */
+function handleRect(i: BoardImage): Rect {
+  const size = HANDLE / camera.zoom;
+  return { x: i.x + i.w - size / 2, y: i.y + i.h - size / 2, w: size, h: size };
+}
+
+function drawSelection(i: BoardImage): void {
+  ctx.strokeStyle = accentColor;
+  ctx.lineWidth = 2 / camera.zoom;
+  ctx.strokeRect(i.x, i.y, i.w, i.h);
+  const h = handleRect(i);
+  ctx.fillStyle = accentColor;
+  ctx.fillRect(h.x, h.y, h.w, h.h);
+}
+
 function draw(): void {
-  // Фон заливаем в координатах экрана, линии рисуем в координатах доски.
+  // Фон заливаем в координатах экрана, всё остальное рисуем в координатах доски.
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = paperColor;
   ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
   ctx.setTransform(dpr * camera.zoom, 0, 0, dpr * camera.zoom, dpr * camera.x, dpr * camera.y);
 
+  for (const i of images) {
+    const img = imageElement(i, draw);
+    if (img) ctx.drawImage(img, i.x, i.y, i.w, i.h);
+  }
+
   ctx.lineWidth = 3;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   for (const s of strokes) drawStroke(s);
+
+  if (selected) drawSelection(selected);
   updateLedge();
 }
 
@@ -154,10 +213,13 @@ function screenPoint(e: MouseEvent): Point {
   return { x: e.clientX - r.left, y: e.clientY - r.top };
 }
 
-/** Та же точка в координатах доски, с учётом сдвига и масштаба. */
-function pointOf(e: MouseEvent): Point {
-  const s = screenPoint(e);
+/** Точка экрана в координатах доски, с учётом сдвига и масштаба. */
+function toBoard(s: Point): Point {
   return { x: (s.x - camera.x) / camera.zoom, y: (s.y - camera.y) / camera.zoom };
+}
+
+function pointOf(e: MouseEvent): Point {
+  return toBoard(screenPoint(e));
 }
 
 /* ---------- сдвиг и масштаб ---------- */
@@ -183,20 +245,39 @@ function resetView(): void {
   draw();
 }
 
-function updateCursor(): void {
+/** Курсор подсказывает, что сейчас произойдёт; at — точка доски под мышью (для указки). */
+function updateCursor(at?: Point): void {
   if (panning) canvas.style.cursor = 'grabbing';
   else if (spaceHeld) canvas.style.cursor = 'grab';
-  else canvas.style.cursor = tool === 'eraser' ? 'cell' : 'crosshair';
+  else if (tool === 'eraser') canvas.style.cursor = 'cell';
+  else if (tool === 'pen') canvas.style.cursor = 'crosshair';
+  else if (dragging?.mode === 'resize' || (at && selected && contains(handleRect(selected), at))) canvas.style.cursor = 'nwse-resize';
+  else if (dragging || (at && imageAt(at))) canvas.style.cursor = 'move';
+  else canvas.style.cursor = 'default';
 }
 
 /* ---------- история: отмена и возврат ---------- */
 
+function removeFrom<T>(list: T[], item: T): void {
+  const i = list.indexOf(item);
+  if (i >= 0) list.splice(i, 1);
+}
+
 /** Применяет действие к доске; reverse = true делает обратное (для отмены). */
 function apply(change: Change, reverse = false): void {
+  if (change.kind === 'move') {
+    Object.assign(change.image, reverse ? change.from : change.to);
+    return;
+  }
   const add = (change.kind === 'add') !== reverse;
   for (const s of change.strokes) {
     if (add) strokes.push(s);
-    else strokes.splice(strokes.indexOf(s), 1);
+    else removeFrom(strokes, s);
+  }
+  for (const i of change.images ?? []) {
+    if (add) images.push(i);
+    else removeFrom(images, i);
+    if (!add && selected === i) selected = null;
   }
 }
 
@@ -244,7 +325,7 @@ function touches(s: Stroke, p: Point): boolean {
   return false;
 }
 
-/** Стирает целиком все линии, которых касается губка. */
+/** Стирает целиком все линии, которых касается губка. Картинки губка не трогает. */
 function eraseAt(p: Point): void {
   for (let i = strokes.length - 1; i >= 0; i--) {
     if (touches(strokes[i], p)) erased!.push(...strokes.splice(i, 1));
@@ -252,12 +333,62 @@ function eraseAt(p: Point): void {
   draw();
 }
 
+/* ---------- картинки ---------- */
+
+/** Верхняя картинка под точкой доски. */
+function imageAt(p: Point): BoardImage | null {
+  for (let i = images.length - 1; i >= 0; i--) if (contains(images[i], p)) return images[i];
+  return null;
+}
+
+/**
+ * Кладёт картинку на доску центром в точку экрана.
+ * Большую уменьшаем, чтобы она занимала не больше 60% видимой части доски.
+ */
+async function insertImage(file: Blob, atScreen: Point): Promise<void> {
+  try {
+    const { src, w, h } = await readImage(file);
+    const k = Math.min(1, (canvas.clientWidth * 0.6) / camera.zoom / w, (canvas.clientHeight * 0.6) / camera.zoom / h);
+    const c = toBoard(atScreen);
+    const item: BoardImage = {
+      id: crypto.randomUUID().slice(0, 8),
+      src,
+      x: c.x - (w * k) / 2,
+      y: c.y - (h * k) / 2,
+      w: w * k,
+      h: h * k,
+    };
+    images.push(item);
+    record({ kind: 'add', strokes: [], images: [item] });
+    select(palette.querySelector<HTMLButtonElement>('[data-tool="pointer"]')!);
+    selected = item;
+    draw();
+    save();
+  } catch {
+    showNotice('Не получилось вставить картинку. Попробуй другой файл.');
+  }
+}
+
+function deleteSelected(): void {
+  if (!selected) return;
+  const item = selected;
+  removeFrom(images, item);
+  selected = null;
+  record({ kind: 'remove', strokes: [], images: [item] });
+  draw();
+  save();
+}
+
+const centerOfScreen = (): Point => ({ x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 });
+
 /* ---------- палитра ---------- */
 
 function select(button: HTMLButtonElement): void {
-  tool = button.dataset.tool === 'eraser' ? 'eraser' : 'pen';
+  tool = (button.dataset.tool as Tool | undefined) ?? 'pen';
   if (tool === 'pen') color = button.dataset.color!;
+  if (tool !== 'pointer') selected = null;
   updateCursor();
+  draw();
   // @ts-ignore
   for (const b of palette.querySelectorAll('button')) {
     b.setAttribute('aria-pressed', String(b === button));
@@ -267,6 +398,7 @@ function select(button: HTMLButtonElement): void {
 /* ---------- мышь, палец, стилус ---------- */
 
 canvas.addEventListener('pointerdown', (e) => {
+  const p = pointOf(e);
   // Средняя кнопка мыши или зажатый пробел — двигаем доску.
   if (e.button === 1 || spaceHeld) {
     e.preventDefault();
@@ -274,12 +406,31 @@ canvas.addEventListener('pointerdown', (e) => {
     updateCursor();
     return;
   }
-  if (tool === 'eraser') {
-    erased = [];
-    eraseAt(pointOf(e));
+  if (tool === 'pointer') {
+    if (selected && contains(handleRect(selected), p)) {
+      dragging = { mode: 'resize', start: p, from: rectOf(selected) };
+    } else {
+      selected = imageAt(p);
+      // Мимо картинок указка двигает саму доску.
+      if (selected) dragging = { mode: 'move', start: p, from: rectOf(selected) };
+      else panning = screenPoint(e);
+    }
+    try {
+      // Тянем картинку, даже если мышь выскочила за край окна.
+      canvas.setPointerCapture(e.pointerId);
+    } catch {
+      // Указатель уже отпущен — тогда и захватывать нечего.
+    }
+    updateCursor(p);
+    draw();
     return;
   }
-  current = { color, points: [pointOf(e)] };
+  if (tool === 'eraser') {
+    erased = [];
+    eraseAt(p);
+    return;
+  }
+  current = { color, points: [p] };
   strokes.push(current);
   draw();
 });
@@ -292,6 +443,23 @@ canvas.addEventListener('pointermove', (e) => {
     panning = p;
     return draw();
   }
+  if (dragging && selected) {
+    const p = pointOf(e);
+    const dx = p.x - dragging.start.x;
+    const dy = p.y - dragging.start.y;
+    const from = dragging.from;
+    if (dragging.mode === 'move') {
+      selected.x = from.x + dx;
+      selected.y = from.y + dy;
+    } else {
+      // Пропорции сохраняются, чтобы скриншот не растягивался.
+      const w = Math.max(MIN_IMAGE, from.w + Math.max(dx, (dy * from.w) / from.h));
+      selected.w = w;
+      selected.h = (w * from.h) / from.w;
+    }
+    return draw();
+  }
+  if (tool === 'pointer') return updateCursor(pointOf(e));
   if (erased) return eraseAt(pointOf(e));
   if (!current) return;
   current.points.push(pointOf(e));
@@ -299,12 +467,21 @@ canvas.addEventListener('pointermove', (e) => {
 });
 
 function finish(): void {
-  const changed = current !== null || !!erased?.length;
+  let changed = current !== null || !!erased?.length;
   if (current) record({ kind: 'add', strokes: [current] });
   if (erased?.length) record({ kind: 'remove', strokes: erased });
+  if (dragging && selected) {
+    const to = rectOf(selected);
+    const from = dragging.from;
+    if (to.x !== from.x || to.y !== from.y || to.w !== from.w) {
+      record({ kind: 'move', image: selected, from, to });
+      changed = true;
+    }
+  }
   current = null;
   erased = null;
   panning = null;
+  dragging = null;
   updateCursor();
   if (changed) save();
 }
@@ -325,9 +502,37 @@ canvas.addEventListener(
   { passive: false },
 );
 
+/* ---------- вставка картинок ---------- */
+
+// Ctrl/⌘ + V: скриншот из буфера обмена появляется в центре экрана.
+window.addEventListener('paste', (e) => {
+  const item = [...(e.clipboardData?.items ?? [])].find((i) => i.type.startsWith('image/'));
+  const file = item?.getAsFile();
+  if (!file) return;
+  e.preventDefault();
+  insertImage(file, centerOfScreen());
+});
+
+// Файл картинки, перетащенный на доску, ложится туда, где его отпустили.
+canvas.addEventListener('dragover', (e) => e.preventDefault());
+canvas.addEventListener('drop', (e) => {
+  e.preventDefault();
+  const file = [...(e.dataTransfer?.files ?? [])].find((f) => f.type.startsWith('image/'));
+  if (file) insertImage(file, screenPoint(e));
+});
+
+fileInput.addEventListener('change', () => {
+  const file = fileInput.files?.[0];
+  if (file) insertImage(file, centerOfScreen());
+  fileInput.value = '';
+});
+
 palette.addEventListener('click', (e) => {
   const button = (e.target as HTMLElement).closest('button');
-  if (button) select(button);
+  if (!button) return;
+  // Кнопка «картинка» не инструмент: она открывает выбор файла.
+  if (button.id === 'add-image') return fileInput.click();
+  select(button);
 });
 
 undoButton.addEventListener('click', undo);
@@ -369,10 +574,23 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
-  // 1, 2, 3 — мелки по порядку; E — губка.
+  // Delete или Backspace убирают выбранную картинку, Esc снимает выбор.
+  if ((e.key === 'Delete' || e.key === 'Backspace') && selected) {
+    e.preventDefault();
+    deleteSelected();
+    return;
+  }
+  if (e.key === 'Escape' && selected) {
+    selected = null;
+    draw();
+    return;
+  }
+
+  // 1, 2, 3 — мелки по порядку; E — губка; V — указка.
   const chalk = palette.querySelectorAll<HTMLButtonElement>('[data-color]')[Number(e.key) - 1];
   if (chalk) select(chalk);
   if (key === 'e' || key === 'у') select(palette.querySelector<HTMLButtonElement>('[data-tool="eraser"]')!);
+  if (key === 'v' || key === 'м') select(palette.querySelector<HTMLButtonElement>('[data-tool="pointer"]')!);
 });
 
 window.addEventListener('keyup', (e) => {

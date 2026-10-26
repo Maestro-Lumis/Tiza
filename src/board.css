@@ -176,3 +176,45 @@ body {
 .ledge .theme-toggle:hover {
   background: var(--wood-top);
 }
+
+/* ---------- указка и картинка на полке ---------- */
+
+/* Указка: деревянная палочка с тёмным кончиком. */
+.pointer {
+  width: 96px;
+  height: 8px;
+  margin-right: 12px;
+  border-radius: 0 4px 4px 0;
+  background: linear-gradient(90deg, var(--ink) 0 6px, #b98a55 6px);
+}
+
+/* Картинка: рамка с «горами» внутри, как фотография на полке. */
+.picture {
+  width: 36px;
+  height: 28px;
+  margin-left: 12px;
+  border-radius: 3px;
+  background:
+    linear-gradient(135deg, transparent 55%, var(--chalk-blue) 55%) 4px 4px / 28px 20px no-repeat,
+    var(--card);
+  outline: 3px solid var(--wood-dark);
+  outline-offset: -3px;
+}
+
+/* Сообщение над доской, например «не хватает места». */
+.notice {
+  position: fixed;
+  top: 44px;
+  left: 16px;
+  max-width: 420px;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 13px;
+}
+
+.notice[hidden] {
+  display: none;
+}
