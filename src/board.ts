@@ -570,8 +570,12 @@ canvas.addEventListener('pointermove', (e) => {
     } else if (isCard(selected)) {
       // У карточки меняется только ширина, текст сам переносится, высота подстроится.
       selected.w = Math.max(MIN_CARD, from.w + dx);
+    } else if (e.shiftKey) {
+      // С зажатым Shift ширина и высота меняются отдельно: картинку можно сплющить или вытянуть.
+      selected.w = Math.max(MIN_IMAGE, from.w + dx);
+      selected.h = Math.max(MIN_IMAGE, from.h + dy);
     } else {
-      // Пропорции сохраняются, чтобы скриншот не растягивался.
+      // Без Shift пропорции сохраняются, чтобы скриншот не растягивался.
       const w = Math.max(MIN_IMAGE, from.w + Math.max(dx, (dy * from.w) / from.h));
       selected.w = w;
       selected.h = (w * from.h) / from.w;
@@ -592,7 +596,7 @@ function finish(): void {
   if (dragging && selected) {
     const to = rectOf(selected);
     const from = dragging.from;
-    if (to.x !== from.x || to.y !== from.y || to.w !== from.w) {
+    if (to.x !== from.x || to.y !== from.y || to.w !== from.w || to.h !== from.h) {
       record({ kind: 'move', image: selected, from, to });
       changed = true;
     }
