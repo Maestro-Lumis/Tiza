@@ -5,7 +5,7 @@ import './theme';
 
 type Point = { x: number; y: number };
 type Stroke = { color: string; points: Point[] };
-type Tool = 'pen' | 'eraser' | 'pointer';
+type Tool = 'pen' | 'eraser' | 'pointer' | 'laser';
 /** Карточка задания из Word. Высота считается по тексту при отрисовке. */
 type Card = { id: string; x: number; y: number; w: number; h: number; title: string; text: string };
 /** То, что указка умеет двигать: картинка или карточка. */
@@ -32,6 +32,8 @@ const CARD_PAD = 16;
 const CARD_GAP = 24;
 const CARD_LINE = 26;
 const FONT = "system-ui, -apple-system, 'Segoe UI', sans-serif";
+/** Сколько миллисекунд живёт след лазерной указки. */
+const LASER_LIFE = 900;
 /** Чья это доска и какой темы: board.html?student=andrey&topic=… */
 const params = new URLSearchParams(location.search);
 const studentId = params.get('student');
@@ -118,6 +120,14 @@ let tool: Tool = 'pen';
 
 /** Выбранная указкой картинка или карточка. */
 let selected: Movable | null = null;
+/**
+ * След лазерной указки: точки доски со временем появления.
+ * Он ничего не рисует на доске и не сохраняется — только показывает, куда смотреть.
+ */
+let laserTrail: { x: number; y: number; t: number }[] = [];
+let laserDown = false;
+let laserFrame = 0;
+
 /** Что делаем с картинкой, пока зажата кнопка мыши: двигаем или меняем размер. */
 let dragging: { mode: 'move' | 'resize'; start: Point; from: Rect } | null = null;
 
@@ -260,7 +270,48 @@ function draw(): void {
   for (const s of strokes) drawStroke(s);
 
   if (selected) drawSelection(selected);
+  drawLaser();
   updateLedge();
+}
+
+/** Рисует след лазера: свежие точки яркие и толстые, старые тают. */
+function drawLaser(): void {
+  const now = performance.now();
+  laserTrail = laserTrail.filter((p) => now - p.t < LASER_LIFE);
+  if (!laserTrail.length) return;
+  ctx.strokeStyle = accentColor;
+  ctx.fillStyle = accentColor;
+  ctx.lineCap = 'round';
+  for (let i = 1; i < laserTrail.length; i++) {
+    const a = 1 - (now - laserTrail[i].t) / LASER_LIFE;
+    ctx.globalAlpha = a;
+    ctx.lineWidth = (2 + 5 * a) / camera.zoom;
+    ctx.beginPath();
+    ctx.moveTo(laserTrail[i - 1].x, laserTrail[i - 1].y);
+    ctx.lineTo(laserTrail[i].x, laserTrail[i].y);
+    ctx.stroke();
+  }
+  const head = laserTrail[laserTrail.length - 1];
+  ctx.globalAlpha = 1 - (now - head.t) / LASER_LIFE;
+  ctx.beginPath();
+  ctx.arc(head.x, head.y, 6 / camera.zoom, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+/** Пока след виден, перерисовываем доску каждый кадр, чтобы он плавно таял. */
+function animateLaser(): void {
+  if (laserFrame || !laserTrail.length) return;
+  laserFrame = requestAnimationFrame(() => {
+    laserFrame = 0;
+    draw();
+    animateLaser();
+  });
+}
+
+function addLaserPoint(p: Point): void {
+  laserTrail.push({ ...p, t: performance.now() });
+  animateLaser();
 }
 
 /** Кнопки на полке: бледные отмена и возврат, если нечего делать, и текущий масштаб. */
@@ -313,7 +364,7 @@ function updateCursor(at?: Point): void {
   if (panning) canvas.style.cursor = 'grabbing';
   else if (spaceHeld) canvas.style.cursor = 'grab';
   else if (tool === 'eraser') canvas.style.cursor = 'cell';
-  else if (tool === 'pen') canvas.style.cursor = 'crosshair';
+  else if (tool === 'pen' || tool === 'laser') canvas.style.cursor = 'crosshair';
   else if (dragging?.mode === 'resize' || (at && selected && contains(handleRect(selected), at))) canvas.style.cursor = 'nwse-resize';
   else if (dragging || (at && imageAt(at))) canvas.style.cursor = 'move';
   else canvas.style.cursor = 'default';
@@ -541,6 +592,11 @@ canvas.addEventListener('pointerdown', (e) => {
     draw();
     return;
   }
+  if (tool === 'laser') {
+    laserDown = true;
+    addLaserPoint(p);
+    return;
+  }
   if (tool === 'eraser') {
     erased = [];
     eraseAt(p);
@@ -583,6 +639,7 @@ canvas.addEventListener('pointermove', (e) => {
     return draw();
   }
   if (tool === 'pointer') return updateCursor(pointOf(e));
+  if (laserDown) return addLaserPoint(pointOf(e));
   if (erased) return eraseAt(pointOf(e));
   if (!current) return;
   current.points.push(pointOf(e));
@@ -605,6 +662,7 @@ function finish(): void {
   erased = null;
   panning = null;
   dragging = null;
+  laserDown = false;
   updateCursor();
   if (changed) save();
 }
@@ -716,7 +774,8 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
-  // 1, 2, 3 — мелки по порядку; E — губка; V — указка.
+  if (key === 'l' || key === 'д') select(palette.querySelector<HTMLButtonElement>('[data-tool="laser"]')!);
+  // 1, 2, 3 — мелки по порядку; E — губка; V — указка; L — лазер.
   const chalk = palette.querySelectorAll<HTMLButtonElement>('[data-color]')[Number(e.key) - 1];
   if (chalk) select(chalk);
   if (key === 'e' || key === 'у') select(palette.querySelector<HTMLButtonElement>('[data-tool="eraser"]')!);

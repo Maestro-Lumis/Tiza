@@ -232,3 +232,16 @@ body {
     linear-gradient(90deg, var(--chalk-blue) 0 3px, var(--card) 3px);
   box-shadow: 0 0 0 1px var(--wood-dark);
 }
+
+/* Лазерная указка: тёмный корпус с горящим кончиком слева. */
+.laser {
+  width: 64px;
+  height: 12px;
+  margin-left: 12px;
+  border-radius: 6px;
+  background:
+    radial-gradient(circle at 6px 50%, var(--accent) 0 4px, transparent 5px),
+    linear-gradient(90deg, transparent 0 8px, #2f2d2a 8px);
+  /* Корпус всегда тёмный, чтобы в тёмной теме лазер не путался с белым мелом. */
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
