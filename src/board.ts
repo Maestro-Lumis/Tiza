@@ -63,7 +63,7 @@ function showHeader(): void {
   const student = studentId ? getStudent(studentId) : undefined;
   const topic = student?.topics?.find((t) => t.id === topicId);
   if (!student) return; // общая доска: ссылка ведёт к списку учеников, как в разметке
-  back.href = `/student.html?id=${encodeURIComponent(student.id)}`;
+  back.href = `student.html?id=${encodeURIComponent(student.id)}`;
   back.textContent = `← ${student.name}`;
   title.textContent = topic?.title ?? '';
   document.title = topic ? `Tiza: ${topic.title}` : `Tiza: ${student.name}`;

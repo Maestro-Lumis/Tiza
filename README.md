@@ -4,6 +4,8 @@
 
 Текущая версия: **0.8.0**. История изменений: [CHANGELOG.md](CHANGELOG.md).
 
+Сайт: https://maestro-lumis.github.io/Tiza/
+
 Репозиторий: https://github.com/Maestro-Lumis/Tiza
 
 ## Запуск
@@ -57,4 +59,5 @@ npm run dev
 
 Пока всё хранится в браузере (около 5 МБ на сайт), поэтому картинки занимают основное место.
 - `vite.config.ts` — сборка всех трёх страниц.
+- `.github/workflows/pages.yml` — после каждого пуша в master сайт собирается и выкладывается на GitHub Pages.
 - `prototype/tiza-prototype.html` — кликабельный прототип будущего интерфейса.

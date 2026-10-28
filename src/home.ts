@@ -14,7 +14,7 @@ function render(): void {
   list.replaceChildren(
     ...students.map((s) => {
       const link = document.createElement('a');
-      link.href = `/student.html?id=${encodeURIComponent(s.id)}`;
+      link.href = `student.html?id=${encodeURIComponent(s.id)}`;
       link.textContent = s.name;
       const item = document.createElement('li');
       item.append(link);

@@ -34,7 +34,7 @@ function topicItem(t: Topic): HTMLLIElement {
   });
 
   const link = document.createElement('a');
-  link.href = `/board.html?student=${encodeURIComponent(studentId)}&topic=${encodeURIComponent(t.id)}`;
+  link.href = `board.html?student=${encodeURIComponent(studentId)}&topic=${encodeURIComponent(t.id)}`;
   link.textContent = t.title;
 
   const item = document.createElement('li');
