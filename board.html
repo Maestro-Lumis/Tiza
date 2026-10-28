@@ -31,6 +31,26 @@
         <input id="image-file" type="file" accept="image/*" hidden />
         <button id="add-doc" class="doc" aria-label="Задания из Word: каждое задание станет карточкой на доске" title="Задания из Word (.docx)"></button>
         <input id="doc-file" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden />
+        <button id="shapes-box" class="box" aria-pressed="false" aria-expanded="false" aria-controls="shapes" aria-label="Ящик с фигурами" title="Фигуры"></button>
+      </div>
+
+      <!-- Ящик с фигурами: выезжает над полкой. Выбрал фигуру — растягиваешь её на доске мышью. -->
+      <div id="shapes" class="shapes" role="group" aria-label="Фигуры" hidden>
+        <p class="shapes-label">Основные</p>
+        <div class="shapes-row">
+          <button data-shape="rect" aria-pressed="false" title="Прямоугольник"><svg viewBox="0 0 28 28"><rect x="4" y="7" width="20" height="14" /></svg></button>
+          <button data-shape="ellipse" aria-pressed="false" title="Круг и овал"><svg viewBox="0 0 28 28"><ellipse cx="14" cy="14" rx="10" ry="8" /></svg></button>
+          <button data-shape="triangle" aria-pressed="false" title="Треугольник"><svg viewBox="0 0 28 28"><path d="M14 5l10 18H4z" /></svg></button>
+          <button data-shape="line" aria-pressed="false" title="Линия"><svg viewBox="0 0 28 28"><path d="M5 23L23 5" /></svg></button>
+          <button data-shape="arrow" aria-pressed="false" title="Стрелка"><svg viewBox="0 0 28 28"><path d="M5 23L23 5M14 5h9v9" /></svg></button>
+        </div>
+        <p class="shapes-label">Математика</p>
+        <div class="shapes-row">
+          <button data-shape="axes" aria-pressed="false" title="Оси координат"><svg viewBox="0 0 28 28"><path d="M3 14h22M14 25V3M22 11l3 3-3 3M11 6l3-3 3 3" /></svg></button>
+          <button data-shape="numberline" aria-pressed="false" title="Числовая прямая"><svg viewBox="0 0 28 28"><path d="M3 14h22M22 11l3 3-3 3M8 11v6M14 11v6M20 11v6" /></svg></button>
+          <button data-shape="grid" aria-pressed="false" title="Клетчатое поле"><svg viewBox="0 0 28 28"><path d="M4 4h20v20H4zM11 4v20M17 4v20M4 11h20M4 17h20" /></svg></button>
+          <button data-shape="angle" aria-pressed="false" title="Угол"><svg viewBox="0 0 28 28"><path d="M24 23H4l18-16M11 23a7 7 0 0 0-1.6-4.5" /></svg></button>
+        </div>
       </div>
 
       <div class="ledge">

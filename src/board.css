@@ -245,3 +245,89 @@ body {
   /* Корпус всегда тёмный, чтобы в тёмной теме лазер не путался с белым мелом. */
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
 }
+
+/* ---------- ящик с фигурами ---------- */
+
+/* Коробка на полке: деревянный ящик с тёмной щелью-ручкой. */
+.box {
+  width: 44px;
+  height: 26px;
+  margin-left: 12px;
+  border-radius: 3px;
+  background:
+    linear-gradient(var(--wood-dark) 0 0) 50% 8px / 16px 3px no-repeat,
+    #b98a55;
+  box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.15);
+}
+
+.box[aria-expanded='true'] {
+  transform: translateY(-12px);
+}
+
+/* Сам ящик над полкой: две строки кнопок с фигурами. */
+.shapes {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 12px);
+  transform: translateX(-50%);
+  pointer-events: auto;
+  padding: 10px 12px 12px;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: 0 10px 30px var(--shade);
+}
+
+.shapes[hidden] {
+  display: none;
+}
+
+.shapes-label {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.shapes-label + .shapes-row + .shapes-label {
+  margin-top: 10px;
+}
+
+.shapes-row {
+  display: flex;
+  gap: 4px;
+}
+
+.shapes button {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  cursor: pointer;
+}
+
+.shapes button:hover {
+  background: var(--paper);
+}
+
+.shapes button[aria-pressed='true'] {
+  background: var(--paper);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.shapes button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.shapes svg {
+  width: 26px;
+  height: 26px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

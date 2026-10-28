@@ -1,21 +1,22 @@
 import { contains, imageElement, readImage, rectOf, type BoardImage, type Rect } from './images';
 import { boardKey, getStudent } from './students';
+import { boundsOf, defaultSize, drawShape, type Shape, type ShapeKind } from './shapes';
 import { readDocx, splitTasks } from './tasks';
 import './theme';
 
 type Point = { x: number; y: number };
 type Stroke = { color: string; points: Point[] };
-type Tool = 'pen' | 'eraser' | 'pointer' | 'laser';
+type Tool = 'pen' | 'eraser' | 'pointer' | 'laser' | 'shape';
 /** Карточка задания из Word. Высота считается по тексту при отрисовке. */
 type Card = { id: string; x: number; y: number; w: number; h: number; title: string; text: string };
 /** То, что указка умеет двигать: картинка или карточка. */
-type Movable = BoardImage | Card;
+type Movable = BoardImage | Card | Shape;
 /**
  * Одно действие для истории:
  * линии, картинки или карточки добавили / стёрли, либо что-то сдвинули или изменили размер.
  */
 type Change =
-  | { kind: 'add' | 'remove'; strokes: Stroke[]; images?: BoardImage[]; cards?: Card[] }
+  | { kind: 'add' | 'remove'; strokes: Stroke[]; images?: BoardImage[]; cards?: Card[]; shapes?: Shape[] }
   | { kind: 'move'; image: Movable; from: Rect; to: Rect };
 
 const ERASER_RADIUS = 12;
@@ -82,20 +83,21 @@ function showNotice(text: string): void {
  * Достаёт сохранённую доску; если её нет или данные испорчены, доска пустая.
  * Старые доски хранились просто списком линий — их тоже понимаем.
  */
-function load(): { strokes: Stroke[]; images: BoardImage[]; cards: Card[] } {
+function load(): { strokes: Stroke[]; images: BoardImage[]; cards: Card[]; shapes: Shape[] } {
+  const empty = { strokes: [], images: [], cards: [], shapes: [] };
   try {
     const data = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]');
-    if (Array.isArray(data)) return { strokes: data, images: [], cards: [] };
+    if (Array.isArray(data)) return { ...empty, strokes: data };
     const list = <T>(v: unknown): T[] => (Array.isArray(v) ? v : []);
-    return { strokes: list(data.strokes), images: list(data.images), cards: list(data.cards) };
+    return { strokes: list(data.strokes), images: list(data.images), cards: list(data.cards), shapes: list(data.shapes) };
   } catch {
-    return { strokes: [], images: [], cards: [] };
+    return empty;
   }
 }
 
 function save(): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ strokes, images, cards }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ strokes, images, cards, shapes }));
     showNotice('');
   } catch {
     // Чаще всего кончилось место: картинки занимают много. Рисовать можно, но не сохранится.
@@ -110,6 +112,11 @@ const strokes: Stroke[] = board.strokes;
 const images: BoardImage[] = board.images;
 /** Карточки заданий из Word; лежат над картинками и под линиями. */
 const cards: Card[] = board.cards;
+/** Фигуры из ящика: лежат над карточками и под линиями мела. */
+const shapes: Shape[] = board.shapes;
+/** Какую фигуру рисуем из ящика и фигура, которую тянем прямо сейчас. */
+let shapeKind: ShapeKind = 'rect';
+let draft: Shape | null = null;
 /** Линия, которую рисуем прямо сейчас. */
 let current: Stroke | null = null;
 /** Линии, стёртые текущим движением губки. */
@@ -267,6 +274,10 @@ function draw(): void {
   ctx.lineWidth = 3;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
+  for (const s of draft ? [...shapes, draft] : shapes) {
+    ctx.strokeStyle = ctx.fillStyle = chalkColors[s.color] ?? s.color;
+    drawShape(ctx, s);
+  }
   for (const s of strokes) drawStroke(s);
 
   if (selected) drawSelection(selected);
@@ -364,7 +375,7 @@ function updateCursor(at?: Point): void {
   if (panning) canvas.style.cursor = 'grabbing';
   else if (spaceHeld) canvas.style.cursor = 'grab';
   else if (tool === 'eraser') canvas.style.cursor = 'cell';
-  else if (tool === 'pen' || tool === 'laser') canvas.style.cursor = 'crosshair';
+  else if (tool === 'pen' || tool === 'laser' || tool === 'shape') canvas.style.cursor = 'crosshair';
   else if (dragging?.mode === 'resize' || (at && selected && contains(handleRect(selected), at))) canvas.style.cursor = 'nwse-resize';
   else if (dragging || (at && imageAt(at))) canvas.style.cursor = 'move';
   else canvas.style.cursor = 'default';
@@ -392,6 +403,11 @@ function apply(change: Change, reverse = false): void {
     if (add) images.push(i);
     else removeFrom(images, i);
     if (!add && selected === i) selected = null;
+  }
+  for (const s of change.shapes ?? []) {
+    if (add) shapes.push(s);
+    else removeFrom(shapes, s);
+    if (!add && selected === s) selected = null;
   }
   for (const c of change.cards ?? []) {
     if (add) cards.push(c);
@@ -454,14 +470,21 @@ function eraseAt(p: Point): void {
 
 /* ---------- картинки ---------- */
 
-/** Верхняя карточка или картинка под точкой доски (карточки лежат выше картинок). */
+/** Верхняя фигура, карточка или картинка под точкой доски — в том порядке, как они лежат. */
 function imageAt(p: Point): Movable | null {
+  for (let i = shapes.length - 1; i >= 0; i--) {
+    // У тонкой линии рамка нулевой высоты, поэтому даём запас в 8 пикселей экрана.
+    const b = boundsOf(shapes[i]);
+    const pad = 8 / camera.zoom;
+    if (contains({ x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 }, p)) return shapes[i];
+  }
   for (let i = cards.length - 1; i >= 0; i--) if (contains(cards[i], p)) return cards[i];
   for (let i = images.length - 1; i >= 0; i--) if (contains(images[i], p)) return images[i];
   return null;
 }
 
 const isCard = (m: Movable): m is Card => 'title' in m;
+const isShape = (m: Movable): m is Shape => 'kind' in m;
 
 /**
  * Кладёт картинку на доску центром в точку экрана.
@@ -495,7 +518,10 @@ function deleteSelected(): void {
   if (!selected) return;
   const item = selected;
   selected = null;
-  if (isCard(item)) {
+  if (isShape(item)) {
+    removeFrom(shapes, item);
+    record({ kind: 'remove', strokes: [], shapes: [item] });
+  } else if (isCard(item)) {
     removeFrom(cards, item);
     record({ kind: 'remove', strokes: [], cards: [item] });
   } else {
@@ -562,10 +588,40 @@ function select(button: HTMLButtonElement): void {
   }
 }
 
+/* ---------- ящик с фигурами ---------- */
+
+const shapesBox = document.querySelector<HTMLDivElement>('#shapes')!;
+const boxButton = document.querySelector<HTMLButtonElement>('#shapes-box')!;
+
+function toggleBox(open = shapesBox.hidden): void {
+  shapesBox.hidden = !open;
+  boxButton.setAttribute('aria-expanded', String(open));
+}
+
+/** Выбрали фигуру в ящике: дальше её рисуем на доске, растягивая мышью, текущим мелом. */
+function chooseShape(button: HTMLButtonElement): void {
+  shapeKind = button.dataset.shape as ShapeKind;
+  tool = 'shape';
+  selected = null;
+  // На полке приподнимается ящик; цвет фигуры — последний выбранный мел.
+  for (const b of palette.querySelectorAll('button')) b.setAttribute('aria-pressed', String(b === boxButton));
+  for (const b of shapesBox.querySelectorAll('button')) b.setAttribute('aria-pressed', String(b === button));
+  draw();
+  toggleBox(false);
+  updateCursor();
+}
+
+boxButton.addEventListener('click', () => toggleBox());
+shapesBox.addEventListener('click', (e) => {
+  const button = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-shape]');
+  if (button) chooseShape(button);
+});
+
 /* ---------- мышь, палец, стилус ---------- */
 
 canvas.addEventListener('pointerdown', (e) => {
   const p = pointOf(e);
+  toggleBox(false);
   // Средняя кнопка мыши или зажатый пробел — двигаем доску.
   if (e.button === 1 || spaceHeld) {
     e.preventDefault();
@@ -597,6 +653,10 @@ canvas.addEventListener('pointerdown', (e) => {
     addLaserPoint(p);
     return;
   }
+  if (tool === 'shape') {
+    draft = { id: crypto.randomUUID().slice(0, 8), kind: shapeKind, color, x: p.x, y: p.y, w: 0, h: 0 };
+    return;
+  }
   if (tool === 'eraser') {
     erased = [];
     eraseAt(p);
@@ -623,6 +683,10 @@ canvas.addEventListener('pointermove', (e) => {
     if (dragging.mode === 'move') {
       selected.x = from.x + dx;
       selected.y = from.y + dy;
+    } else if (isShape(selected)) {
+      // У фигуры уголок — это её второй конец: тянем его куда угодно.
+      selected.w = from.w + dx;
+      selected.h = from.h + dy;
     } else if (isCard(selected)) {
       // У карточки меняется только ширина, текст сам переносится, высота подстроится.
       selected.w = Math.max(MIN_CARD, from.w + dx);
@@ -640,6 +704,12 @@ canvas.addEventListener('pointermove', (e) => {
   }
   if (tool === 'pointer') return updateCursor(pointOf(e));
   if (laserDown) return addLaserPoint(pointOf(e));
+  if (draft) {
+    const p = pointOf(e);
+    draft.w = p.x - draft.x;
+    draft.h = p.y - draft.y;
+    return draw();
+  }
   if (erased) return eraseAt(pointOf(e));
   if (!current) return;
   current.points.push(pointOf(e));
@@ -650,6 +720,14 @@ function finish(): void {
   let changed = current !== null || !!erased?.length;
   if (current) record({ kind: 'add', strokes: [current] });
   if (erased?.length) record({ kind: 'remove', strokes: erased });
+  if (draft) {
+    // Просто кликнули, не растягивая, — ставим фигуру обычного размера.
+    if (Math.abs(draft.w) < 4 && Math.abs(draft.h) < 4) Object.assign(draft, defaultSize(draft.kind));
+    shapes.push(draft);
+    record({ kind: 'add', strokes: [], shapes: [draft] });
+    draft = null;
+    changed = true;
+  }
   if (dragging && selected) {
     const to = rectOf(selected);
     const from = dragging.from;
@@ -720,6 +798,8 @@ palette.addEventListener('click', (e) => {
   // Кнопка «картинка» не инструмент: она открывает выбор файла.
   if (button.id === 'add-image') return fileInput.click();
   if (button.id === 'add-doc') return docInput.click();
+  // Ящик открывается своим обработчиком и сам не меняет инструмент.
+  if (button.id === 'shapes-box') return;
   select(button);
 });
 
@@ -766,6 +846,10 @@ window.addEventListener('keydown', (e) => {
   if ((e.key === 'Delete' || e.key === 'Backspace') && selected) {
     e.preventDefault();
     deleteSelected();
+    return;
+  }
+  if (e.key === 'Escape' && !shapesBox.hidden) {
+    toggleBox(false);
     return;
   }
   if (e.key === 'Escape' && selected) {
