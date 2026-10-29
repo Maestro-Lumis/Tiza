@@ -2,6 +2,8 @@
  * Тема сайта: светлая (бумага) или тёмная (школьная доска).
  * Пока кнопку не нажимали, тема берётся из системы. Выбор запоминается в браузере.
  */
+import './tooltip';
+
 type Theme = 'light' | 'dark';
 
 const STORAGE_KEY = 'tiza:theme';
@@ -31,7 +33,7 @@ function updateButtons(): void {
     button.innerHTML = dark ? SUN : MOON;
     const label = dark ? 'Светлая тема' : 'Тёмная тема: школьная доска';
     button.setAttribute('aria-label', label);
-    button.title = label;
+    button.dataset.tip = label;
   }
 }
 

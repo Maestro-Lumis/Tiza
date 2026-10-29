@@ -21,55 +21,55 @@
     <!-- Полка как под школьной доской: сверху лежат мелки и губка, на передней грани кнопки. -->
     <div class="tray">
       <div id="palette" class="shelf" role="toolbar" aria-label="Инструменты">
-        <button class="pointer" data-tool="pointer" aria-pressed="false" aria-label="Указка: выбрать, двигать и менять размер (V). Уголок с Shift — свободные пропорции" title="Указка (V). Тяни за уголок; с Shift — свободные пропорции"></button>
-        <button class="chalk" data-color="#25231f" style="--chalk: var(--chalk-ink)" aria-pressed="true" aria-label="Мел, графит (1)" title="Графит (1)"></button>
-        <button class="chalk" data-color="#ae4f29" style="--chalk: var(--chalk-red)" aria-pressed="false" aria-label="Мел, терракота (2)" title="Терракота (2)"></button>
-        <button class="chalk" data-color="#33589e" style="--chalk: var(--chalk-blue)" aria-pressed="false" aria-label="Мел, синий (3)" title="Синий (3)"></button>
-        <button class="laser" data-tool="laser" aria-pressed="false" aria-label="Лазерная указка: показать, куда смотреть, след быстро гаснет (L)" title="Лазер (L)"></button>
-        <button class="sponge" data-tool="eraser" aria-pressed="false" aria-label="Губка: стереть линию (E)" title="Губка (E)"></button>
-        <button id="add-image" class="picture" aria-label="Вставить картинку из файла (или Ctrl+V для скриншота)" title="Картинка: файл или Ctrl+V"></button>
+        <button class="pointer" data-tool="pointer" aria-pressed="false" aria-label="Указка: выбрать, двигать и менять размер (V). Уголок с Shift — свободные пропорции" data-tip="Указка: выбрать, двигать, менять размер. Shift — свободные пропорции" data-key="V"></button>
+        <button class="chalk" data-color="#25231f" style="--chalk: var(--chalk-ink)" aria-pressed="true" aria-label="Мел, графит (1)" data-tip="Мел: основной" data-key="1"></button>
+        <button class="chalk" data-color="#ae4f29" style="--chalk: var(--chalk-red)" aria-pressed="false" aria-label="Мел, терракота (2)" data-tip="Мел: терракота" data-key="2"></button>
+        <button class="chalk" data-color="#33589e" style="--chalk: var(--chalk-blue)" aria-pressed="false" aria-label="Мел, синий (3)" data-tip="Мел: синий" data-key="3"></button>
+        <button class="laser" data-tool="laser" aria-pressed="false" aria-label="Лазерная указка: показать, куда смотреть, след быстро гаснет (L)" data-tip="Лазерная указка: след быстро гаснет" data-key="L"></button>
+        <button class="sponge" data-tool="eraser" aria-pressed="false" aria-label="Губка: стереть линию (E)" data-tip="Губка: стереть линию" data-key="E"></button>
+        <button id="add-image" class="picture" aria-label="Вставить картинку из файла (или Ctrl+V для скриншота)" data-tip="Картинка из файла. Скриншот — вставить" data-key="Ctrl+V"></button>
         <input id="image-file" type="file" accept="image/*" hidden />
-        <button id="add-doc" class="doc" aria-label="Задания из Word: каждое задание станет карточкой на доске" title="Задания из Word (.docx)"></button>
+        <button id="add-doc" class="doc" aria-label="Задания из Word: каждое задание станет карточкой на доске" data-tip="Задания из Word (.docx) — карточками на доску"></button>
         <input id="doc-file" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden />
-        <button id="shapes-box" class="box" aria-pressed="false" aria-expanded="false" aria-controls="shapes" aria-label="Ящик с фигурами" title="Фигуры"></button>
+        <button id="shapes-box" class="box" aria-pressed="false" aria-expanded="false" aria-controls="shapes" aria-label="Ящик с фигурами" data-tip="Ящик с фигурами"></button>
       </div>
 
       <!-- Ящик с фигурами: выезжает над полкой. Выбрал фигуру — растягиваешь её на доске мышью. -->
       <div id="shapes" class="shapes" role="group" aria-label="Фигуры" hidden>
         <p class="shapes-label">Основные</p>
         <div class="shapes-row">
-          <button data-shape="rect" aria-pressed="false" title="Прямоугольник"><svg viewBox="0 0 28 28"><rect x="4" y="7" width="20" height="14" /></svg></button>
-          <button data-shape="ellipse" aria-pressed="false" title="Круг и овал"><svg viewBox="0 0 28 28"><ellipse cx="14" cy="14" rx="10" ry="8" /></svg></button>
-          <button data-shape="triangle" aria-pressed="false" title="Треугольник"><svg viewBox="0 0 28 28"><path d="M14 5l10 18H4z" /></svg></button>
-          <button data-shape="line" aria-pressed="false" title="Линия"><svg viewBox="0 0 28 28"><path d="M5 23L23 5" /></svg></button>
-          <button data-shape="arrow" aria-pressed="false" title="Стрелка"><svg viewBox="0 0 28 28"><path d="M5 23L23 5M14 5h9v9" /></svg></button>
+          <button data-shape="rect" aria-pressed="false" aria-label="Прямоугольник" data-tip="Прямоугольник"><svg viewBox="0 0 28 28"><rect x="4" y="7" width="20" height="14" /></svg></button>
+          <button data-shape="ellipse" aria-pressed="false" aria-label="Круг и овал" data-tip="Круг и овал"><svg viewBox="0 0 28 28"><ellipse cx="14" cy="14" rx="10" ry="8" /></svg></button>
+          <button data-shape="triangle" aria-pressed="false" aria-label="Треугольник" data-tip="Треугольник"><svg viewBox="0 0 28 28"><path d="M14 5l10 18H4z" /></svg></button>
+          <button data-shape="line" aria-pressed="false" aria-label="Линия" data-tip="Линия"><svg viewBox="0 0 28 28"><path d="M5 23L23 5" /></svg></button>
+          <button data-shape="arrow" aria-pressed="false" aria-label="Стрелка" data-tip="Стрелка"><svg viewBox="0 0 28 28"><path d="M5 23L23 5M14 5h9v9" /></svg></button>
         </div>
         <p class="shapes-label">Математика</p>
         <div class="shapes-row">
-          <button data-shape="axes" aria-pressed="false" title="Оси координат"><svg viewBox="0 0 28 28"><path d="M3 14h22M14 25V3M22 11l3 3-3 3M11 6l3-3 3 3" /></svg></button>
-          <button data-shape="numberline" aria-pressed="false" title="Числовая прямая"><svg viewBox="0 0 28 28"><path d="M3 14h22M22 11l3 3-3 3M8 11v6M14 11v6M20 11v6" /></svg></button>
-          <button data-shape="grid" aria-pressed="false" title="Клетчатое поле"><svg viewBox="0 0 28 28"><path d="M4 4h20v20H4zM11 4v20M17 4v20M4 11h20M4 17h20" /></svg></button>
-          <button data-shape="angle" aria-pressed="false" title="Угол"><svg viewBox="0 0 28 28"><path d="M24 23H4l18-16M11 23a7 7 0 0 0-1.6-4.5" /></svg></button>
+          <button data-shape="axes" aria-pressed="false" aria-label="Оси координат" data-tip="Оси координат"><svg viewBox="0 0 28 28"><path d="M3 14h22M14 25V3M22 11l3 3-3 3M11 6l3-3 3 3" /></svg></button>
+          <button data-shape="numberline" aria-pressed="false" aria-label="Числовая прямая" data-tip="Числовая прямая"><svg viewBox="0 0 28 28"><path d="M3 14h22M22 11l3 3-3 3M8 11v6M14 11v6M20 11v6" /></svg></button>
+          <button data-shape="grid" aria-pressed="false" aria-label="Клетчатое поле" data-tip="Клетчатое поле"><svg viewBox="0 0 28 28"><path d="M4 4h20v20H4zM11 4v20M17 4v20M4 11h20M4 17h20" /></svg></button>
+          <button data-shape="angle" aria-pressed="false" aria-label="Угол" data-tip="Угол"><svg viewBox="0 0 28 28"><path d="M24 23H4l18-16M11 23a7 7 0 0 0-1.6-4.5" /></svg></button>
         </div>
       </div>
 
       <div class="ledge">
         <div class="group">
-          <button id="undo" class="icon" aria-label="Отменить (Ctrl+Z)" title="Отменить (Ctrl+Z)">
+          <button id="undo" class="icon" aria-label="Отменить (Ctrl+Z)" data-tip="Отменить" data-key="Ctrl+Z">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14L4 9l5-5" /><path d="M4 9h10.5a5.5 5.5 0 010 11H11" /></svg>
           </button>
-          <button id="redo" class="icon" aria-label="Вернуть (Ctrl+Shift+Z)" title="Вернуть (Ctrl+Shift+Z)">
+          <button id="redo" class="icon" aria-label="Вернуть (Ctrl+Shift+Z)" data-tip="Вернуть" data-key="Ctrl+Shift+Z">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 14l5-5-5-5" /><path d="M20 9H9.5a5.5 5.5 0 000 11H13" /></svg>
           </button>
         </div>
 
         <div class="group">
           <button class="theme-toggle" aria-label="Сменить тему"></button>
-          <button id="zoom-out" class="icon" aria-label="Отдалить" title="Отдалить">
+          <button id="zoom-out" class="icon" aria-label="Отдалить" data-tip="Отдалить">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg>
           </button>
-          <button id="zoom-reset" class="zoom" aria-label="Вернуть масштаб 100% (Ctrl+0)" title="Вернуть масштаб 100% (Ctrl+0)">100%</button>
-          <button id="zoom-in" class="icon" aria-label="Приблизить" title="Приблизить">
+          <button id="zoom-reset" class="zoom" aria-label="Вернуть масштаб 100% (Ctrl+0)" data-tip="Вернуть масштаб 100%" data-key="Ctrl+0">100%</button>
+          <button id="zoom-in" class="icon" aria-label="Приблизить" data-tip="Приблизить">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
           </button>
         </div>
