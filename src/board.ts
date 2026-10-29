@@ -2,10 +2,12 @@ import { contains, imageElement, readImage, rectOf, type BoardImage, type Rect }
 import { boardKey, getStudent } from './students';
 import { boundsOf, defaultSize, drawShape, type Shape, type ShapeKind } from './shapes';
 import { readDocx, splitTasks } from './tasks';
+import { applyOp, LISTS, type BoardData, type Item, type ListName, type Op } from './ops';
+import { connect } from './sync';
 import './theme';
 
 type Point = { x: number; y: number };
-type Stroke = { color: string; points: Point[] };
+type Stroke = { id: string; color: string; points: Point[] };
 type Tool = 'pen' | 'eraser' | 'pointer' | 'laser' | 'shape';
 /** Карточка задания из Word. Высота считается по тексту при отрисовке. */
 type Card = { id: string; x: number; y: number; w: number; h: number; title: string; text: string };
@@ -87,12 +89,18 @@ function load(): { strokes: Stroke[]; images: BoardImage[]; cards: Card[]; shape
   const empty = { strokes: [], images: [], cards: [], shapes: [] };
   try {
     const data = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]');
-    if (Array.isArray(data)) return { ...empty, strokes: data };
     const list = <T>(v: unknown): T[] => (Array.isArray(v) ? v : []);
-    return { strokes: list(data.strokes), images: list(data.images), cards: list(data.cards), shapes: list(data.shapes) };
+    // У старых линий не было id, а без него другая вкладка не поймёт, какую линию стёрли.
+    const withIds = (v: unknown): Stroke[] => list<Stroke>(v).map((s) => ({ ...s, id: s.id ?? newId() }));
+    if (Array.isArray(data)) return { ...empty, strokes: withIds(data) };
+    return { strokes: withIds(data.strokes), images: list(data.images), cards: list(data.cards), shapes: list(data.shapes) };
   } catch {
     return empty;
   }
+}
+
+function newId(): string {
+  return crypto.randomUUID().slice(0, 8);
 }
 
 function save(): void {
@@ -416,9 +424,28 @@ function apply(change: Change, reverse = false): void {
   }
 }
 
+/** То же действие в виде изменений для сервера: другие вкладки найдут всё по id. */
+function opsOf(change: Change, reverse = false): Op[] {
+  if (change.kind === 'move') {
+    const m = change.image;
+    const list: ListName = isShape(m) ? 'shapes' : isCard(m) ? 'cards' : 'images';
+    return [{ type: 'move', list, id: m.id, rect: reverse ? change.from : change.to }];
+  }
+  const add = (change.kind === 'add') !== reverse;
+  const ops: Op[] = [];
+  for (const list of LISTS) {
+    const items: Item[] = change[list] ?? [];
+    if (!items.length) continue;
+    ops.push(add ? { type: 'add', list, items } : { type: 'remove', list, ids: items.map((i) => i.id) });
+  }
+  return ops;
+}
+
+/** Действие уже случилось на доске: кладём его в историю и отправляем остальным. */
 function record(change: Change): void {
   undoStack.push(change);
   redoStack.length = 0;
+  opsOf(change).forEach(sendOp);
   updateLedge();
 }
 
@@ -426,6 +453,7 @@ function undo(): void {
   const change = undoStack.pop();
   if (!change) return;
   apply(change, true);
+  opsOf(change, true).forEach(sendOp);
   redoStack.push(change);
   draw();
   save();
@@ -435,6 +463,7 @@ function redo(): void {
   const change = redoStack.pop();
   if (!change) return;
   apply(change);
+  opsOf(change).forEach(sendOp);
   undoStack.push(change);
   draw();
   save();
@@ -662,7 +691,7 @@ canvas.addEventListener('pointerdown', (e) => {
     eraseAt(p);
     return;
   }
-  current = { color, points: [p] };
+  current = { id: newId(), color, points: [p] };
   strokes.push(current);
   draw();
 });
@@ -877,6 +906,30 @@ window.addEventListener('resize', resize);
 window.addEventListener('themechange', () => {
   readTheme();
   draw();
+});
+
+/* ---------- связь с сервером ---------- */
+
+/** Те же массивы, что рисует доска: изменения с сервера меняют их на месте. */
+const live = { strokes, images, cards, shapes } as unknown as BoardData;
+
+const sendOp = connect(STORAGE_KEY, {
+  local: () => live,
+  init(board) {
+    for (const list of LISTS) live[list].splice(0, live[list].length, ...board[list]);
+    // История вкладки ссылается на прежние линии и картинки: после замены доски она неверна.
+    undoStack.length = 0;
+    redoStack.length = 0;
+    selected = null;
+    draw();
+    save();
+  },
+  op(op) {
+    applyOp(live, op);
+    if (selected && ![...images, ...cards, ...shapes].includes(selected)) selected = null;
+    draw();
+    save();
+  },
 });
 
 readTheme();
