@@ -1,4 +1,5 @@
 import type { Rect } from './images';
+import type { Wipe } from './ops';
 
 /** Фигуры из ящика на полке: основные и для математики. */
 export type ShapeKind =
@@ -16,7 +17,7 @@ export type ShapeKind =
  * Фигура на доске. x, y — точка, откуда начали тянуть; w, h — куда дотянули (могут быть
  * отрицательными: у линии и стрелки это направление). Цвет — код мела, как у линий.
  */
-export type Shape = { id: string; kind: ShapeKind; color: string; x: number; y: number; w: number; h: number };
+export type Shape = { id: string; kind: ShapeKind; color: string; x: number; y: number; w: number; h: number; wipes?: Wipe[] };
 
 /** Шаг клеток и делений — как клетка тетради. */
 const STEP = 24;

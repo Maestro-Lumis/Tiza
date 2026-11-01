@@ -4,14 +4,21 @@
  */
 
 /** Всё на доске имеет id, по нему вкладки понимают, о чём речь. */
-export type Item = { id: string };
+export type Item = { id: string; wipes?: Wipe[] };
+/**
+ * След губки на предмете. Точки и радиус — в долях размера предмета,
+ * поэтому стёртое остаётся на месте, когда предмет двигают или растягивают.
+ */
+export type Wipe = { id: string; r: number; points: { x: number; y: number }[] };
 export type ListName = 'strokes' | 'images' | 'cards' | 'shapes';
 export type BoardData = Record<ListName, Item[]>;
 
 export type Op =
   | { type: 'add'; list: ListName; items: Item[] }
   | { type: 'remove'; list: ListName; ids: string[] }
-  | { type: 'move'; list: ListName; id: string; rect: { x: number; y: number; w: number; h: number } };
+  | { type: 'move'; list: ListName; id: string; rect: { x: number; y: number; w: number; h: number } }
+  | { type: 'wipe'; list: ListName; id: string; wipe: Wipe }
+  | { type: 'unwipe'; list: ListName; id: string; wipeId: string };
 
 export const LISTS: ListName[] = ['strokes', 'images', 'cards', 'shapes'];
 
@@ -29,6 +36,9 @@ export function applyOp(board: BoardData, op: Op): void {
     for (let i = list.length - 1; i >= 0; i--) if (op.ids.includes(list[i].id)) list.splice(i, 1);
   } else {
     const item = list.find((i) => i.id === op.id);
-    if (item) Object.assign(item, op.rect);
+    if (!item) return;
+    if (op.type === 'move') Object.assign(item, op.rect);
+    else if (op.type === 'wipe') (item.wipes ??= []).push(op.wipe);
+    else item.wipes = item.wipes?.filter((w) => w.id !== op.wipeId);
   }
 }

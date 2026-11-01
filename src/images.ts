@@ -1,5 +1,7 @@
+import type { Wipe } from './ops';
+
 /** Картинка на доске: скриншот или файл. Координаты и размер — в координатах доски. */
-export type BoardImage = { id: string; src: string; x: number; y: number; w: number; h: number };
+export type BoardImage = { id: string; src: string; x: number; y: number; w: number; h: number; wipes?: Wipe[] };
 export type Rect = { x: number; y: number; w: number; h: number };
 
 /**

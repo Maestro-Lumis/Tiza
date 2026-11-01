@@ -2,7 +2,7 @@ import { contains, imageElement, readImage, rectOf, type BoardImage, type Rect }
 import { boardKey, getStudent } from './students';
 import { boundsOf, defaultSize, drawShape, type Shape, type ShapeKind } from './shapes';
 import { readDocx, splitTasks } from './tasks';
-import { applyOp, LISTS, type BoardData, type Item, type ListName, type Op } from './ops';
+import { applyOp, LISTS, type BoardData, type Item, type ListName, type Op, type Wipe } from './ops';
 import { connect } from './sync';
 import './theme';
 
@@ -10,7 +10,7 @@ type Point = { x: number; y: number };
 type Stroke = { id: string; color: string; points: Point[] };
 type Tool = 'pen' | 'eraser' | 'pointer' | 'laser' | 'shape';
 /** Карточка задания из Word. Высота считается по тексту при отрисовке. */
-type Card = { id: string; x: number; y: number; w: number; h: number; title: string; text: string };
+type Card = { id: string; x: number; y: number; w: number; h: number; title: string; text: string; wipes?: Wipe[] };
 /** То, что указка умеет двигать: картинка или карточка. */
 type Movable = BoardImage | Card | Shape;
 /**
@@ -19,9 +19,11 @@ type Movable = BoardImage | Card | Shape;
  */
 type Change =
   | { kind: 'add' | 'remove'; strokes: Stroke[]; images?: BoardImage[]; cards?: Card[]; shapes?: Shape[] }
-  | { kind: 'move'; image: Movable; from: Rect; to: Rect };
+  | { kind: 'move'; image: Movable; from: Rect; to: Rect }
+  | { kind: 'erase'; removed: Stroke[]; added: Stroke[]; wipes: { item: Movable; wipe: Wipe }[] };
 
-const ERASER_RADIUS = 12;
+/** Радиус губки в пикселях экрана: такой, чтобы стереть одну букву. */
+const ERASER_RADIUS = 8;
 const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 5;
 /** Размер уголка для изменения размера картинки — в пикселях экрана. */
@@ -48,7 +50,11 @@ const topicId = params.get('topic');
 const STORAGE_KEY = studentId && topicId ? boardKey(studentId, topicId) : 'tiza:board';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#board')!;
-const ctx = canvas.getContext('2d')!;
+const mainCtx = canvas.getContext('2d')!;
+/** Куда рисуем сейчас: на доску или на запасной холст, если на предмете есть стёртые места. */
+let ctx = mainCtx;
+const layer = document.createElement('canvas');
+const layerCtx = layer.getContext('2d')!;
 const palette = document.querySelector<HTMLDivElement>('#palette')!;
 const undoButton = document.querySelector<HTMLButtonElement>('#undo')!;
 const redoButton = document.querySelector<HTMLButtonElement>('#redo')!;
@@ -127,8 +133,11 @@ let shapeKind: ShapeKind = 'rect';
 let draft: Shape | null = null;
 /** Линия, которую рисуем прямо сейчас. */
 let current: Stroke | null = null;
-/** Линии, стёртые текущим движением губки. */
-let erased: Stroke[] | null = null;
+/** Что изменило текущее движение губки: какие линии заменены кусками и где стёрто на предметах. */
+let erased: { removed: Stroke[]; added: Stroke[]; wipes: Map<Movable, Wipe> } | null = null;
+/** Где губка: последняя стёртая точка и кружок под курсором. */
+let eraserLast: Point | null = null;
+let eraserRing: Point | null = null;
 /** Цвет мела, выбранный на палитре. */
 let color = palette.querySelector<HTMLButtonElement>('[aria-pressed="true"]')!.dataset.color!;
 let tool: Tool = 'pen';
@@ -266,6 +275,59 @@ function drawSelection(i: Movable): void {
   ctx.fillRect(h.x, h.y, h.w, h.h);
 }
 
+/** Прямоугольник предмета: у фигуры ширина и высота могут быть отрицательными. */
+function boxOf(m: Movable): Rect {
+  return isShape(m) ? boundsOf(m) : m;
+}
+
+/**
+ * Рисует предмет со стёртыми местами. Они должны быть прозрачными, а не цвета бумаги:
+ * так под ними видно то, что лежит ниже. Поэтому предмет сначала рисуем на запасном холсте.
+ */
+function withWipes(item: Movable, paint: () => void): void {
+  if (!item.wipes?.length) return paint();
+  if (layer.width !== canvas.width || layer.height !== canvas.height) {
+    layer.width = canvas.width;
+    layer.height = canvas.height;
+  }
+  const transform = mainCtx.getTransform();
+  layerCtx.setTransform(1, 0, 0, 1, 0, 0);
+  layerCtx.clearRect(0, 0, layer.width, layer.height);
+  layerCtx.setTransform(transform);
+  layerCtx.lineWidth = mainCtx.lineWidth;
+  layerCtx.lineCap = layerCtx.lineJoin = 'round';
+  layerCtx.strokeStyle = mainCtx.strokeStyle;
+  layerCtx.fillStyle = mainCtx.fillStyle;
+  ctx = layerCtx;
+  paint();
+  ctx = mainCtx;
+
+  const b = boxOf(item);
+  layerCtx.globalCompositeOperation = 'destination-out';
+  layerCtx.strokeStyle = '#000';
+  for (const wipe of item.wipes) {
+    layerCtx.lineWidth = wipe.r * 2 * (b.w || 1);
+    layerCtx.beginPath();
+    layerCtx.moveTo(b.x + wipe.points[0].x * (b.w || 1), b.y + wipe.points[0].y * (b.h || 1));
+    for (const p of wipe.points) layerCtx.lineTo(b.x + p.x * (b.w || 1), b.y + p.y * (b.h || 1));
+    layerCtx.stroke();
+  }
+  layerCtx.globalCompositeOperation = 'source-over';
+
+  mainCtx.setTransform(1, 0, 0, 1, 0, 0);
+  mainCtx.drawImage(layer, 0, 0);
+  mainCtx.setTransform(transform);
+}
+
+/** Кружок показывает, какую область сотрёт губка. */
+function drawEraserRing(p: Point): void {
+  ctx.strokeStyle = inkColor;
+  ctx.lineWidth = 1 / camera.zoom;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, ERASER_RADIUS / camera.zoom, 0, Math.PI * 2);
+  ctx.stroke();
+}
+
 function draw(): void {
   // Фон заливаем в координатах экрана, всё остальное рисуем в координатах доски.
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -275,20 +337,21 @@ function draw(): void {
 
   for (const i of images) {
     const img = imageElement(i, draw);
-    if (img) ctx.drawImage(img, i.x, i.y, i.w, i.h);
+    if (img) withWipes(i, () => ctx.drawImage(img, i.x, i.y, i.w, i.h));
   }
-  for (const c of cards) drawCard(c);
+  for (const c of cards) withWipes(c, () => drawCard(c));
 
   ctx.lineWidth = 3;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   for (const s of draft ? [...shapes, draft] : shapes) {
     ctx.strokeStyle = ctx.fillStyle = chalkColors[s.color] ?? s.color;
-    drawShape(ctx, s);
+    withWipes(s, () => drawShape(ctx, s));
   }
   for (const s of strokes) drawStroke(s);
 
   if (selected) drawSelection(selected);
+  if (tool === 'eraser' && eraserRing) drawEraserRing(eraserRing);
   drawLaser();
   updateLedge();
 }
@@ -382,7 +445,7 @@ function resetView(): void {
 function updateCursor(at?: Point): void {
   if (panning) canvas.style.cursor = 'grabbing';
   else if (spaceHeld) canvas.style.cursor = 'grab';
-  else if (tool === 'eraser') canvas.style.cursor = 'cell';
+  else if (tool === 'eraser') canvas.style.cursor = 'none';
   else if (tool === 'pen' || tool === 'laser' || tool === 'shape') canvas.style.cursor = 'crosshair';
   else if (dragging?.mode === 'resize' || (at && selected && contains(handleRect(selected), at))) canvas.style.cursor = 'nwse-resize';
   else if (dragging || (at && imageAt(at))) canvas.style.cursor = 'move';
@@ -400,6 +463,15 @@ function removeFrom<T>(list: T[], item: T): void {
 function apply(change: Change, reverse = false): void {
   if (change.kind === 'move') {
     Object.assign(change.image, reverse ? change.from : change.to);
+    return;
+  }
+  if (change.kind === 'erase') {
+    for (const s of reverse ? change.added : change.removed) removeFrom(strokes, s);
+    strokes.push(...(reverse ? change.removed : change.added));
+    for (const { item, wipe } of change.wipes) {
+      if (reverse) item.wipes = item.wipes?.filter((w) => w !== wipe);
+      else (item.wipes ??= []).push(wipe);
+    }
     return;
   }
   const add = (change.kind === 'add') !== reverse;
@@ -424,12 +496,27 @@ function apply(change: Change, reverse = false): void {
   }
 }
 
+function listOf(m: Movable): ListName {
+  return isShape(m) ? 'shapes' : isCard(m) ? 'cards' : 'images';
+}
+
 /** То же действие в виде изменений для сервера: другие вкладки найдут всё по id. */
 function opsOf(change: Change, reverse = false): Op[] {
   if (change.kind === 'move') {
     const m = change.image;
-    const list: ListName = isShape(m) ? 'shapes' : isCard(m) ? 'cards' : 'images';
-    return [{ type: 'move', list, id: m.id, rect: reverse ? change.from : change.to }];
+    return [{ type: 'move', list: listOf(m), id: m.id, rect: reverse ? change.from : change.to }];
+  }
+  if (change.kind === 'erase') {
+    const gone = reverse ? change.added : change.removed;
+    const back = reverse ? change.removed : change.added;
+    const ops: Op[] = [];
+    if (gone.length) ops.push({ type: 'remove', list: 'strokes', ids: gone.map((s) => s.id) });
+    if (back.length) ops.push({ type: 'add', list: 'strokes', items: back });
+    for (const { item, wipe } of change.wipes) {
+      const target = { list: listOf(item), id: item.id };
+      ops.push(reverse ? { type: 'unwipe', ...target, wipeId: wipe.id } : { type: 'wipe', ...target, wipe });
+    }
+    return ops;
   }
   const add = (change.kind === 'add') !== reverse;
   const ops: Op[] = [];
@@ -489,11 +576,67 @@ function touches(s: Stroke, p: Point): boolean {
   return false;
 }
 
-/** Стирает целиком все линии, которых касается губка. Картинки губка не трогает. */
+/** Стирает в одной точке: вырезает кусок из линий и оставляет след на предметах под губкой. */
 function eraseAt(p: Point): void {
   for (let i = strokes.length - 1; i >= 0; i--) {
-    if (touches(strokes[i], p)) erased!.push(...strokes.splice(i, 1));
+    const s = strokes[i];
+    if (!touches(s, p)) continue;
+    const parts = cutStroke(s, p);
+    strokes.splice(i, 1, ...parts);
+    // Кусок, появившийся в этом же движении, просто забываем: до движения его не было.
+    const own = erased!.added.indexOf(s);
+    if (own >= 0) erased!.added.splice(own, 1);
+    else erased!.removed.push(s);
+    erased!.added.push(...parts);
   }
+  const r = ERASER_RADIUS / camera.zoom;
+  for (const item of [...images, ...cards, ...shapes]) {
+    const b = boxOf(item);
+    // У фигур подписи и толщина линий выходят за прямоугольник, поэтому запас больше.
+    const pad = isShape(item) ? r + 16 : r;
+    if (!contains({ x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 }, p)) continue;
+    let wipe = erased!.wipes.get(item);
+    if (!wipe) {
+      wipe = { id: newId(), r: r / (b.w || 1), points: [] };
+      erased!.wipes.set(item, wipe);
+      (item.wipes ??= []).push(wipe);
+    }
+    wipe.points.push({ x: round((p.x - b.x) / (b.w || 1)), y: round((p.y - b.y) / (b.h || 1)) });
+  }
+}
+
+const round = (n: number) => Math.round(n * 10000) / 10000;
+
+/** Вырезает из линии круг губки. Возвращает куски, которые остались. */
+function cutStroke(s: Stroke, p: Point): Stroke[] {
+  const r = ERASER_RADIUS / camera.zoom;
+  const runs: Point[][] = [];
+  let run: Point[] = [];
+  const visit = (q: Point) => {
+    if (Math.hypot(q.x - p.x, q.y - p.y) >= r) return void run.push(q);
+    if (run.length) runs.push(run);
+    run = [];
+  };
+  s.points.forEach((q, i) => {
+    const prev = s.points[i - 1];
+    // Длинный отрезок рядом с губкой дробим, чтобы край выреза был точным.
+    if (prev && distToSegment(p, prev, q) < r) {
+      const n = Math.ceil(Math.hypot(q.x - prev.x, q.y - prev.y) / (r / 4));
+      for (let k = 1; k < n; k++) visit({ x: prev.x + ((q.x - prev.x) * k) / n, y: prev.y + ((q.y - prev.y) * k) / n });
+    }
+    visit(q);
+  });
+  if (run.length) runs.push(run);
+  return runs.filter((points) => points.length > 1).map((points) => ({ id: newId(), color: s.color, points }));
+}
+
+/** Ведёт губку до точки: быстрое движение мыши не должно оставлять нестёртых промежутков. */
+function eraseTo(p: Point): void {
+  const from = eraserLast ?? p;
+  const step = ERASER_RADIUS / camera.zoom / 2;
+  const n = Math.max(1, Math.ceil(Math.hypot(p.x - from.x, p.y - from.y) / step));
+  for (let i = 1; i <= n; i++) eraseAt({ x: from.x + ((p.x - from.x) * i) / n, y: from.y + ((p.y - from.y) * i) / n });
+  eraserLast = p;
   draw();
 }
 
@@ -687,8 +830,9 @@ canvas.addEventListener('pointerdown', (e) => {
     return;
   }
   if (tool === 'eraser') {
-    erased = [];
-    eraseAt(p);
+    erased = { removed: [], added: [], wipes: new Map() };
+    eraserLast = null;
+    eraseTo(p);
     return;
   }
   current = { id: newId(), color, points: [p] };
@@ -731,6 +875,10 @@ canvas.addEventListener('pointermove', (e) => {
     }
     return draw();
   }
+  if (tool === 'eraser') {
+    eraserRing = pointOf(e);
+    return erased ? eraseTo(eraserRing) : draw();
+  }
   if (tool === 'pointer') return updateCursor(pointOf(e));
   if (laserDown) return addLaserPoint(pointOf(e));
   if (draft) {
@@ -739,16 +887,19 @@ canvas.addEventListener('pointermove', (e) => {
     draft.h = p.y - draft.y;
     return draw();
   }
-  if (erased) return eraseAt(pointOf(e));
   if (!current) return;
   current.points.push(pointOf(e));
   draw();
 });
 
 function finish(): void {
-  let changed = current !== null || !!erased?.length;
+  const wiped = erased && (erased.removed.length > 0 || erased.wipes.size > 0);
+  let changed = current !== null || !!wiped;
   if (current) record({ kind: 'add', strokes: [current] });
-  if (erased?.length) record({ kind: 'remove', strokes: erased });
+  if (erased && wiped) {
+    const wipes = [...erased.wipes].map(([item, wipe]) => ({ item, wipe }));
+    record({ kind: 'erase', removed: erased.removed, added: erased.added, wipes });
+  }
   if (draft) {
     // Просто кликнули, не растягивая, — ставим фигуру обычного размера.
     if (Math.abs(draft.w) < 4 && Math.abs(draft.h) < 4) Object.assign(draft, defaultSize(draft.kind));
@@ -774,6 +925,10 @@ function finish(): void {
   if (changed) save();
 }
 
+canvas.addEventListener('pointerleave', () => {
+  eraserRing = null;
+  if (tool === 'eraser') draw();
+});
 canvas.addEventListener('pointerup', finish);
 canvas.addEventListener('pointercancel', finish);
 
