@@ -36,6 +36,9 @@ const MIN_CARD = 200;
 const CARD_PAD = 16;
 const CARD_GAP = 24;
 const CARD_LINE = 26;
+/** Таблица в карточке: шрифт помельче, высота строки и отступ текста от линий ячейки. */
+const TABLE_LINE = 22;
+const CELL_PAD = 8;
 const FONT = "system-ui, -apple-system, 'Segoe UI', sans-serif";
 /** Сколько миллисекунд живёт след лазерной указки. */
 const LASER_LIFE = 900;
@@ -242,11 +245,79 @@ function wrapText(text: string, width: number): string[] {
   return lines;
 }
 
-/** Рисует лист карточки и заодно запоминает её высоту по количеству строк. */
-function drawCardSheet(c: Card): string[] {
-  ctx.font = `18px ${FONT}`;
-  const lines = wrapText(c.text, c.w - CARD_PAD * 2);
-  c.h = CARD_PAD * 2 + 22 + lines.length * CARD_LINE;
+/** Где что стоит в карточке: строки текста, линии таблиц и высота всей карточки. */
+type CardLayout = {
+  h: number;
+  texts: { x: number; y: number; text: string; font: string }[];
+  grid: { x1: number; y1: number; x2: number; y2: number }[];
+};
+
+/**
+ * Раскладывает текст карточки. Строки с табуляцией — это строки таблицы из Word:
+ * подряд идущие такие строки рисуем одной таблицей с сеткой.
+ */
+function layoutCard(c: Card): CardLayout {
+  const layout: CardLayout = { h: 0, texts: [], grid: [] };
+  const left = c.x + CARD_PAD;
+  const width = c.w - CARD_PAD * 2;
+  const top = c.y + CARD_PAD + 26;
+  let y = top;
+  const rows = c.text.split('\n');
+  for (let i = 0; i < rows.length; ) {
+    if (!rows[i].includes('\t')) {
+      ctx.font = `18px ${FONT}`;
+      for (const text of wrapText(rows[i], width)) {
+        layout.texts.push({ x: left, y, text, font: ctx.font });
+        y += CARD_LINE;
+      }
+      i++;
+      continue;
+    }
+    const table: string[][] = [];
+    while (i < rows.length && rows[i].includes('\t')) table.push(rows[i++].split('\t'));
+    y = layoutTable(table, left, y + 4, width, layout) + 8;
+  }
+  layout.h = y - top + CARD_PAD * 2 + 22;
+  return layout;
+}
+
+/** Таблица: ширина столбцов по самому длинному тексту, а если не влезает — сжимаем и переносим. */
+function layoutTable(table: string[][], left: number, top: number, width: number, layout: CardLayout): number {
+  ctx.font = `16px ${FONT}`;
+  const cols = Math.max(...table.map((r) => r.length));
+  const natural = Array.from({ length: cols }, (_, k) =>
+    Math.max(20, ...table.map((r) => ctx.measureText(r[k] ?? '').width)) + CELL_PAD * 2,
+  );
+  const total = natural.reduce((a, b) => a + b, 0);
+  const widths = natural.map((w) => (total > width ? (w * width) / total : w));
+  const right = left + widths.reduce((a, b) => a + b, 0);
+
+  let y = top;
+  layout.grid.push({ x1: left, y1: y, x2: right, y2: y });
+  for (const row of table) {
+    let x = left;
+    let height = TABLE_LINE;
+    widths.forEach((w, k) => {
+      const lines = wrapText(row[k] ?? '', w - CELL_PAD * 2);
+      lines.forEach((text, n) => layout.texts.push({ x: x + CELL_PAD, y: y + 4 + n * TABLE_LINE, text, font: ctx.font }));
+      height = Math.max(height, lines.length * TABLE_LINE);
+      x += w;
+    });
+    y += height + 8;
+    layout.grid.push({ x1: left, y1: y, x2: right, y2: y });
+  }
+  let x = left;
+  for (const w of [0, ...widths]) {
+    x += w;
+    layout.grid.push({ x1: x, y1: top, x2: x, y2: y });
+  }
+  return y;
+}
+
+/** Рисует лист карточки и заодно запоминает её высоту по содержимому. */
+function drawCardSheet(c: Card): CardLayout {
+  const layout = layoutCard(c);
+  c.h = layout.h;
 
   ctx.fillStyle = cardColor;
   ctx.strokeStyle = lineColor;
@@ -255,19 +326,29 @@ function drawCardSheet(c: Card): string[] {
   ctx.roundRect(c.x, c.y, c.w, c.h, 10);
   ctx.fill();
   ctx.stroke();
-  return lines;
+  return layout;
 }
 
 /** Текст карточки: заголовок и строки задания. Губка стирает только его, лист остаётся. */
-function drawCardText(c: Card, lines: string[]): void {
+function drawCardText(c: Card, layout: CardLayout): void {
   ctx.fillStyle = accentColor;
   ctx.font = `600 14px ${FONT}`;
   ctx.textBaseline = 'top';
   ctx.fillText(c.title, c.x + CARD_PAD, c.y + CARD_PAD);
 
   ctx.fillStyle = inkColor;
-  ctx.font = `18px ${FONT}`;
-  lines.forEach((line, n) => ctx.fillText(line, c.x + CARD_PAD, c.y + CARD_PAD + 26 + n * CARD_LINE));
+  for (const t of layout.texts) {
+    ctx.font = t.font;
+    ctx.fillText(t.text, t.x, t.y);
+  }
+  ctx.strokeStyle = lineColor;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (const g of layout.grid) {
+    ctx.moveTo(g.x1, g.y1);
+    ctx.lineTo(g.x2, g.y2);
+  }
+  ctx.stroke();
 }
 
 function drawSelection(i: Movable): void {
@@ -353,8 +434,8 @@ function draw(): void {
     if (i.wipes?.length) strokeWipes(ctx, i, backgroundOf(i.id, img));
   }
   for (const c of cards) {
-    const lines = drawCardSheet(c);
-    withWipes(c, () => drawCardText(c, lines));
+    const layout = drawCardSheet(c);
+    withWipes(c, () => drawCardText(c, layout));
   }
 
   ctx.lineWidth = 3;
@@ -742,7 +823,7 @@ async function insertTasks(file: File): Promise<void> {
       const card: Card = { id: crypto.randomUUID().slice(0, 8), x: start.x, y, w: CARD_WIDTH, h: 0, title: t.title, text: t.text };
       // Высоту узнаём, «нарисовав» карточку: она нужна, чтобы следующая встала ниже.
       ctx.font = `18px ${FONT}`;
-      card.h = CARD_PAD * 2 + 22 + wrapText(card.text, CARD_WIDTH - CARD_PAD * 2).length * CARD_LINE;
+      card.h = layoutCard(card).h;
       y += card.h + CARD_GAP;
       added.push(card);
     }
