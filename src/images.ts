@@ -57,3 +57,38 @@ export function contains(r: Rect, p: { x: number; y: number }): boolean {
 }
 
 export const rectOf = (i: Rect): Rect => ({ x: i.x, y: i.y, w: i.w, h: i.h });
+
+const backgrounds = new Map<string, string>();
+
+/**
+ * Цвет фона картинки: самый частый цвет по её краю (у скриншота это обычно белый лист).
+ * Им губка закрашивает стёртое на картинке. Считается один раз на картинку.
+ */
+export function backgroundOf(id: string, img: HTMLImageElement): string {
+  const known = backgrounds.get(id);
+  if (known) return known;
+  const size = 32;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const c = canvas.getContext('2d', { willReadFrequently: true })!;
+  c.drawImage(img, 0, 0, size, size);
+  const data = c.getImageData(0, 0, size, size).data;
+  // По каждой группе похожих оттенков: сколько точек и сумма их цветов.
+  const groups = new Map<string, number[]>();
+  for (let i = 0; i < size * size; i++) {
+    const x = i % size;
+    const y = Math.floor(i / size);
+    if (x > 0 && x < size - 1 && y > 0 && y < size - 1) continue;
+    // Похожие оттенки считаем одним цветом, чтобы шум и сглаживание не мешали.
+    const key = [0, 1, 2].map((k) => Math.round(data[i * 4 + k] / 16)).join(',');
+    const g = groups.get(key) ?? [0, 0, 0, 0];
+    for (let k = 0; k < 3; k++) g[k] += data[i * 4 + k];
+    g[3]++;
+    groups.set(key, g);
+  }
+  // Самая большая группа, а цвет — среднее её точек, чтобы заплатка совпала с фоном.
+  const top = [...groups.values()].sort((a, b) => b[3] - a[3])[0];
+  const color = top ? `rgb(${top.slice(0, 3).map((v) => Math.round(v / top[3])).join(',')})` : '#fff';
+  backgrounds.set(id, color);
+  return color;
+}

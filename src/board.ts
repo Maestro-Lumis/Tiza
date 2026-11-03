@@ -1,4 +1,4 @@
-import { contains, imageElement, readImage, rectOf, type BoardImage, type Rect } from './images';
+import { backgroundOf, contains, imageElement, readImage, rectOf, type BoardImage, type Rect } from './images';
 import { boardKey, getStudent } from './students';
 import { boundsOf, defaultSize, drawShape, type Shape, type ShapeKind } from './shapes';
 import { readDocx, splitTasks } from './tasks';
@@ -242,8 +242,8 @@ function wrapText(text: string, width: number): string[] {
   return lines;
 }
 
-/** Рисует карточку задания и заодно запоминает её высоту по количеству строк. */
-function drawCard(c: Card): void {
+/** Рисует лист карточки и заодно запоминает её высоту по количеству строк. */
+function drawCardSheet(c: Card): string[] {
   ctx.font = `18px ${FONT}`;
   const lines = wrapText(c.text, c.w - CARD_PAD * 2);
   c.h = CARD_PAD * 2 + 22 + lines.length * CARD_LINE;
@@ -255,7 +255,11 @@ function drawCard(c: Card): void {
   ctx.roundRect(c.x, c.y, c.w, c.h, 10);
   ctx.fill();
   ctx.stroke();
+  return lines;
+}
 
+/** Текст карточки: заголовок и строки задания. Губка стирает только его, лист остаётся. */
+function drawCardText(c: Card, lines: string[]): void {
   ctx.fillStyle = accentColor;
   ctx.font = `600 14px ${FONT}`;
   ctx.textBaseline = 'top';
@@ -302,21 +306,27 @@ function withWipes(item: Movable, paint: () => void): void {
   paint();
   ctx = mainCtx;
 
-  const b = boxOf(item);
   layerCtx.globalCompositeOperation = 'destination-out';
-  layerCtx.strokeStyle = '#000';
-  for (const wipe of item.wipes) {
-    layerCtx.lineWidth = wipe.r * 2 * (b.w || 1);
-    layerCtx.beginPath();
-    layerCtx.moveTo(b.x + wipe.points[0].x * (b.w || 1), b.y + wipe.points[0].y * (b.h || 1));
-    for (const p of wipe.points) layerCtx.lineTo(b.x + p.x * (b.w || 1), b.y + p.y * (b.h || 1));
-    layerCtx.stroke();
-  }
+  strokeWipes(layerCtx, item, '#000');
   layerCtx.globalCompositeOperation = 'source-over';
 
   mainCtx.setTransform(1, 0, 0, 1, 0, 0);
   mainCtx.drawImage(layer, 0, 0);
   mainCtx.setTransform(transform);
+}
+
+/** Проводит следы губки по предмету указанным цветом. */
+function strokeWipes(target: CanvasRenderingContext2D, item: Movable, color: string): void {
+  const b = boxOf(item);
+  target.strokeStyle = color;
+  target.lineCap = target.lineJoin = 'round';
+  for (const wipe of item.wipes ?? []) {
+    target.lineWidth = wipe.r * 2 * (b.w || 1);
+    target.beginPath();
+    target.moveTo(b.x + wipe.points[0].x * (b.w || 1), b.y + wipe.points[0].y * (b.h || 1));
+    for (const p of wipe.points) target.lineTo(b.x + p.x * (b.w || 1), b.y + p.y * (b.h || 1));
+    target.stroke();
+  }
 }
 
 /** Кружок показывает, какую область сотрёт губка. */
@@ -337,9 +347,15 @@ function draw(): void {
 
   for (const i of images) {
     const img = imageElement(i, draw);
-    if (img) withWipes(i, () => ctx.drawImage(img, i.x, i.y, i.w, i.h));
+    if (!img) continue;
+    ctx.drawImage(img, i.x, i.y, i.w, i.h);
+    // На картинке губка закрашивает стёртое её же фоном: на скриншоте пропадает буква, а не появляется дыра.
+    if (i.wipes?.length) strokeWipes(ctx, i, backgroundOf(i.id, img));
   }
-  for (const c of cards) withWipes(c, () => drawCard(c));
+  for (const c of cards) {
+    const lines = drawCardSheet(c);
+    withWipes(c, () => drawCardText(c, lines));
+  }
 
   ctx.lineWidth = 3;
   ctx.lineCap = 'round';
