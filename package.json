@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "npm run typecheck && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit --strict --target es2022 --module esnext --moduleResolution bundler --lib es2022,dom,dom.iterable --skipLibCheck src/board.ts src/home.ts src/student.ts && tsc --noEmit --strict --target es2022 --module nodenext --moduleResolution nodenext --allowImportingTsExtensions --types node --skipLibCheck server/index.ts",
+    "typecheck": "tsc --noEmit --strict --target es2022 --module esnext --moduleResolution bundler --lib es2022,dom,dom.iterable --skipLibCheck src/board.ts src/home.ts src/student.ts && tsc --noEmit --strict --target es2022 --module nodenext --moduleResolution nodenext --allowImportingTsExtensions --types node --skipLibCheck server/index.ts server/store.ts",
     "server": "node --env-file-if-exists=.env --watch server/index.ts"
   },
   "repository": {
@@ -26,6 +26,7 @@
     "vite": "^6.4.4"
   },
   "dependencies": {
+    "@libsql/client": "^0.18.0",
     "mammoth": "^1.13.0",
     "ws": "^8.22.0"
   },
