@@ -566,8 +566,9 @@ function apply(change: Change, reverse = false): void {
     for (const s of reverse ? change.added : change.removed) removeFrom(strokes, s);
     strokes.push(...(reverse ? change.removed : change.added));
     for (const { item, wipe } of change.wipes) {
-      if (reverse) item.wipes = item.wipes?.filter((w) => w !== wipe);
-      else (item.wipes ??= []).push(wipe);
+      // По id, а не по ссылке: после переподключения следы губки приходят с сервера новыми объектами.
+      if (reverse) item.wipes = item.wipes?.filter((w) => w.id !== wipe.id);
+      else if (!item.wipes?.some((w) => w.id === wipe.id)) (item.wipes ??= []).push(wipe);
     }
     return;
   }
@@ -1183,11 +1184,20 @@ function showLink(state: LinkState): void {
 const sendOp = connect(STORAGE_KEY, {
   local: () => live,
   init(board) {
-    for (const list of LISTS) live[list].splice(0, live[list].length, ...board[list]);
-    // История вкладки ссылается на прежние линии и картинки: после замены доски она неверна.
-    undoStack.length = 0;
-    redoStack.length = 0;
-    selected = null;
+    for (const list of LISTS) {
+      // Что уже есть во вкладке, обновляем на месте: на эти предметы ссылается история отмен,
+      // и после переподключения отменять можно то, что сделано до обрыва связи.
+      const mine = new Map(live[list].map((i) => [i.id, i]));
+      const next = board[list].map((item) => {
+        const own = mine.get(item.id);
+        if (!own) return item;
+        Object.assign(own, item);
+        own.wipes = item.wipes;
+        return own;
+      });
+      live[list].splice(0, live[list].length, ...next);
+    }
+    if (selected && ![...images, ...cards, ...shapes].includes(selected)) selected = null;
     draw();
     save();
   },

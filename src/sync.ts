@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import type { BoardData, Op } from './ops';
+import { applyOp, type BoardData, type Op } from './ops';
 
 /**
  * Адрес сервера берётся из .env (VITE_SERVER_URL). Без него на localhost — свой сервер
@@ -37,27 +37,59 @@ type Handlers = {
   state: (state: LinkState) => void;
 };
 
-/** Подключает доску к серверу. Возвращает функцию, которая отправляет свои изменения. */
+/**
+ * Подключает доску к серверу. Возвращает функцию, которая отправляет свои изменения.
+ * Пока связи нет (сервер просыпается или пропал), изменения копятся и уходят после подключения:
+ * сервер присылает свою доску, к ней сверху применяются накопленные изменения.
+ */
 export function connect(room: string, on: Handlers): (op: Op) => void {
   let ws: WebSocket | null = null;
   /** Были ли уже на связи: до первого раза это «подключение…» (сервер просыпается), потом — «нет связи». */
   let wasOnline = false;
+  /** Сервер прислал доску в этом соединении: теперь изменения можно слать сразу. */
+  let synced = false;
+  /** Изменения, которые ещё не дошли до сервера. */
+  const pending: Op[] = [];
+  /**
+   * Изменения, уехавшие внутри своей доски (seed). Если другая вкладка успела раньше,
+   * сервер ответит своей доской — тогда их надо применить к ней заново.
+   */
+  let seeded: Op[] = [];
+
+  const send = (msg: object) => ws!.send(JSON.stringify(msg));
 
   function open(): void {
     if (!SERVER) return;
     ws = new WebSocket(`${SERVER}/?board=${encodeURIComponent(room)}`);
+    synced = false;
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
+      if (msg.type === 'empty') {
+        // На сервере доски нет: шлём свою, накопленное в ней уже есть.
+        seeded = pending.splice(0);
+        send({ type: 'seed', board: on.local() });
+      } else if (msg.type === 'init') {
+        // Доска сервера + всё, что сделали без связи, — показываем и досылаем.
+        const unsent = [...seeded, ...pending.splice(0)];
+        seeded = [];
+        for (const op of unsent) applyOp(msg.board, op);
+        on.init(msg.board);
+        for (const op of unsent) send({ type: 'op', op });
+      } else if (msg.type === 'op') {
+        seeded = []; // сервер уже живёт с нашей доской
+        on.op(msg.op);
+      }
       // На связи мы, когда сервер прислал доску (или сказал, что её нет), а не когда открылось соединение.
       if (msg.type === 'empty' || msg.type === 'init') {
+        synced = true;
         wasOnline = true;
         on.state('online');
       }
-      if (msg.type === 'empty') ws!.send(JSON.stringify({ type: 'seed', board: on.local() }));
-      else if (msg.type === 'init') on.init(msg.board);
-      else if (msg.type === 'op') on.op(msg.op);
     };
     ws.onclose = () => {
+      synced = false;
+      // Не знаем, дошла ли своя доска до сервера, — на всякий случай пошлём её изменения снова.
+      pending.unshift(...seeded.splice(0));
       on.state(wasOnline ? 'offline' : 'connecting');
       setTimeout(open, RETRY);
     };
@@ -66,6 +98,8 @@ export function connect(room: string, on: Handlers): (op: Op) => void {
   if (SERVER) on.state('connecting');
   open();
   return (op) => {
-    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'op', op }));
+    if (!SERVER) return;
+    if (synced && ws?.readyState === WebSocket.OPEN) send({ type: 'op', op });
+    else pending.push(op);
   };
 }

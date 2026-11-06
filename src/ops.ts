@@ -26,7 +26,8 @@ export function emptyBoard(): BoardData {
   return { strokes: [], images: [], cards: [], shapes: [] };
 }
 
-/** Применяет изменение к доске. Повторное добавление того же id ничего не ломает. */
+/** Применяет изменение к доске. Повторное применение того же изменения ничего не ломает:
+ * изменения, сделанные без связи, могут дойти до сервера дважды. */
 export function applyOp(board: BoardData, op: Op): void {
   const list = board[op.list];
   if (op.type === 'add') {
@@ -38,7 +39,10 @@ export function applyOp(board: BoardData, op: Op): void {
     const item = list.find((i) => i.id === op.id);
     if (!item) return;
     if (op.type === 'move') Object.assign(item, op.rect);
-    else if (op.type === 'wipe') (item.wipes ??= []).push(op.wipe);
+    else if (op.type === 'wipe') {
+      item.wipes ??= [];
+      if (!item.wipes.some((w) => w.id === op.wipe.id)) item.wipes.push(op.wipe);
+    }
     else item.wipes = item.wipes?.filter((w) => w.id !== op.wipeId);
   }
 }
