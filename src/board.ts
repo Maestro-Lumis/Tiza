@@ -3,7 +3,7 @@ import { boardKey, getStudent } from './students';
 import { boundsOf, defaultSize, drawShape, type Shape, type ShapeKind } from './shapes';
 import { readDocx, splitTasks } from './tasks';
 import { applyOp, LISTS, type BoardData, type Item, type ListName, type Op, type Wipe } from './ops';
-import { connect } from './sync';
+import { connect, type LinkState } from './sync';
 import './theme';
 
 type Point = { x: number; y: number };
@@ -1165,6 +1165,21 @@ window.addEventListener('themechange', () => {
 /** Те же массивы, что рисует доска: изменения с сервера меняют их на месте. */
 const live = { strokes, images, cards, shapes } as unknown as BoardData;
 
+/** Значок связи вверху: виден, только когда у сайта есть сервер. */
+const linkStatus = document.querySelector<HTMLSpanElement>('#link-status')!;
+const LINK_TEXT: Record<LinkState, [string, string]> = {
+  connecting: ['подключение…', 'Сервер просыпается, это бывает до минуты. Пока ученик не видит твоих изменений.'],
+  online: ['на связи', 'Ученик видит изменения на доске сразу.'],
+  offline: ['нет связи', 'Связь с сервером пропала, пробую снова. Пока ученик не видит твоих изменений.'],
+};
+
+function showLink(state: LinkState): void {
+  linkStatus.hidden = false;
+  linkStatus.dataset.state = state;
+  linkStatus.textContent = LINK_TEXT[state][0];
+  linkStatus.dataset.tip = LINK_TEXT[state][1];
+}
+
 const sendOp = connect(STORAGE_KEY, {
   local: () => live,
   init(board) {
@@ -1182,6 +1197,7 @@ const sendOp = connect(STORAGE_KEY, {
     draw();
     save();
   },
+  state: showLink,
 });
 
 readTheme();

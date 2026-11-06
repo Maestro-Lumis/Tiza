@@ -331,3 +331,50 @@ body {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+
+/* ---------- значок связи ---------- */
+
+/* Точка и подпись рядом с названием темы: подключение, на связи или нет связи. */
+.link-status {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.link-status[hidden] {
+  display: none;
+}
+
+.link-status::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--link-dot);
+}
+
+/* Зелёная точка — на связи, мигающая оранжевая — подключение, красная — нет связи. */
+.link-status[data-state='online'] {
+  --link-dot: #3f9b5f;
+}
+
+.link-status[data-state='connecting'] {
+  --link-dot: var(--accent);
+}
+
+.link-status[data-state='connecting']::before {
+  animation: link-blink 1s ease-in-out infinite alternate;
+}
+
+.link-status[data-state='offline'] {
+  --link-dot: #c0392b;
+}
+
+@keyframes link-blink {
+  to {
+    opacity: 0.25;
+  }
+}

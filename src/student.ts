@@ -8,6 +8,7 @@ import {
   type Topic,
   type TopicStatus,
 } from './students';
+import { wakeServer } from './sync';
 import './theme';
 
 const studentId = new URLSearchParams(location.search).get('id') ?? '';
@@ -77,3 +78,5 @@ form.addEventListener('submit', (e) => {
 input.addEventListener('input', () => (error.hidden = true));
 
 render();
+// Сервер засыпает без посетителей: будим его, пока выбираешь ученика и тему.
+wakeServer();
