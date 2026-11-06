@@ -12,7 +12,7 @@ const SERVER: string | null =
 const RETRY = 2000;
 
 /** Есть ли связь: подключаемся (сервер может просыпаться до минуты), на связи или нет связи. */
-export type LinkState = 'connecting' | 'online' | 'offline';
+export type LinkState = 'connecting' | 'online' | 'offline' | 'waiting';
 
 /** Сервер подключён: значок связи на доске имеет смысл показывать. */
 export const hasServer = SERVER !== null;
@@ -27,8 +27,11 @@ export function wakeServer(): void {
 }
 
 type Handlers = {
-  /** Своя доска целиком: её просит сервер, если доски у него ещё нет. */
-  local: () => BoardData;
+  /**
+   * Своя доска целиком: её просит сервер, если доски у него ещё нет.
+   * null — своей доски нет (ученик): ждём, пока доску откроет учитель.
+   */
+  local: () => BoardData | null;
   /** Доска с сервера целиком: заменяет то, что было в вкладке. */
   init: (board: BoardData) => void;
   /** Изменение от другой вкладки или ученика. */
@@ -65,9 +68,11 @@ export function connect(room: string, on: Handlers): (op: Op) => void {
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if (msg.type === 'empty') {
+        const board = on.local();
+        if (!board) return on.state('waiting'); // сервер пришлёт доску, когда её откроет учитель
         // На сервере доски нет: шлём свою, накопленное в ней уже есть.
         seeded = pending.splice(0);
-        send({ type: 'seed', board: on.local() });
+        send({ type: 'seed', board });
       } else if (msg.type === 'init') {
         // Доска сервера + всё, что сделали без связи, — показываем и досылаем.
         const unsent = [...seeded, ...pending.splice(0)];

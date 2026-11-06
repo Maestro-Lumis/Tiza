@@ -3,7 +3,7 @@ import { boardKey, getStudent } from './students';
 import { boundsOf, defaultSize, drawShape, type Shape, type ShapeKind } from './shapes';
 import { readDocx, splitTasks } from './tasks';
 import { applyOp, LISTS, type BoardData, type Item, type ListName, type Op, type Wipe } from './ops';
-import { connect, type LinkState } from './sync';
+import { connect, hasServer, type LinkState } from './sync';
 import './theme';
 
 type Point = { x: number; y: number };
@@ -50,7 +50,10 @@ const topicId = params.get('topic');
  * Ключ, под которым доска лежит в хранилище браузера: у каждой темы свой.
  * Без ученика и темы открывается старая общая доска.
  */
-const STORAGE_KEY = studentId && topicId ? boardKey(studentId, topicId) : 'tiza:board';
+/** Ученик открывает доску по ссылке учителя: board.html?room=…&title=… */
+const room = params.get('room');
+const isGuest = room !== null;
+const STORAGE_KEY = room ?? (studentId && topicId ? boardKey(studentId, topicId) : 'tiza:board');
 
 const canvas = document.querySelector<HTMLCanvasElement>('#board')!;
 const mainCtx = canvas.getContext('2d')!;
@@ -71,6 +74,13 @@ const notice = document.querySelector<HTMLParagraphElement>('#notice')!;
 function showHeader(): void {
   const back = document.querySelector<HTMLAnchorElement>('#back')!;
   const title = document.querySelector<HTMLSpanElement>('#topic-title')!;
+  if (isGuest) {
+    // Ученику некуда возвращаться: списка учеников у него нет.
+    back.hidden = true;
+    title.textContent = params.get('title') ?? '';
+    document.title = title.textContent ? `Tiza: ${title.textContent}` : 'Tiza';
+    return;
+  }
   const student = studentId ? getStudent(studentId) : undefined;
   const topic = student?.topics?.find((t) => t.id === topicId);
   if (!student) return; // общая доска: ссылка ведёт к списку учеников, как в разметке
@@ -88,6 +98,23 @@ function showNotice(text: string): void {
   notice.hidden = !text;
 }
 
+/* ---------- ссылка для ученика ---------- */
+
+const shareButton = document.querySelector<HTMLButtonElement>('#share')!;
+// Без сервера ученик не увидит доску учителя, поэтому и ссылка не нужна.
+shareButton.hidden = isGuest || !hasServer || !studentId || !topicId;
+if (isGuest && !hasServer) showNotice('Сайт пока не подключён к серверу, поэтому доска учителя здесь не появится.');
+shareButton.addEventListener('click', async () => {
+  const link = new URL('board.html', location.href);
+  link.search = new URLSearchParams({ room: STORAGE_KEY, title: document.querySelector('#topic-title')!.textContent ?? '' }).toString();
+  try {
+    await navigator.clipboard.writeText(link.href);
+    showNotice('Ссылка скопирована: отправь её ученику.');
+  } catch {
+    showNotice(`Скопируй ссылку для ученика: ${link.href}`);
+  }
+});
+
 /* ---------- сохранение в браузере ---------- */
 
 /**
@@ -96,6 +123,7 @@ function showNotice(text: string): void {
  */
 function load(): { strokes: Stroke[]; images: BoardImage[]; cards: Card[]; shapes: Shape[] } {
   const empty = { strokes: [], images: [], cards: [], shapes: [] };
+  if (isGuest) return empty; // доска ученика приходит с сервера
   try {
     const data = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]');
     const list = <T>(v: unknown): T[] => (Array.isArray(v) ? v : []);
@@ -113,6 +141,8 @@ function newId(): string {
 }
 
 function save(): void {
+  // У ученика доска живёт на сервере: в его браузере копию не держим.
+  if (isGuest) return;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ strokes, images, cards, shapes }));
     showNotice('');
@@ -1172,6 +1202,7 @@ const LINK_TEXT: Record<LinkState, [string, string]> = {
   connecting: ['подключение…', 'Сервер просыпается, это бывает до минуты. Пока ученик не видит твоих изменений.'],
   online: ['на связи', 'Ученик видит изменения на доске сразу.'],
   offline: ['нет связи', 'Связь с сервером пропала, пробую снова. Пока ученик не видит твоих изменений.'],
+  waiting: ['ждём учителя', 'Учитель ещё не открывал эту доску. Она появится, как только он её откроет.'],
 };
 
 function showLink(state: LinkState): void {
@@ -1182,7 +1213,7 @@ function showLink(state: LinkState): void {
 }
 
 const sendOp = connect(STORAGE_KEY, {
-  local: () => live,
+  local: () => (isGuest ? null : live),
   init(board) {
     for (const list of LISTS) {
       // Что уже есть во вкладке, обновляем на месте: на эти предметы ссылается история отмен,

@@ -83,6 +83,8 @@ wss.on('connection', async (ws, req) => {
       if (existing) return send(ws, { type: 'init', board: existing });
       boards.set(room, Promise.resolve(msg.board));
       saveLater(room);
+      // Ученик мог открыть доску раньше учителя и ждёт её.
+      for (const peer of peers) if (peer !== ws && peer.readyState === peer.OPEN) send(peer, { type: 'init', board: msg.board });
     } else if (msg.type === 'op') {
       const target = (await boards.get(room)) ?? board;
       if (target) {
