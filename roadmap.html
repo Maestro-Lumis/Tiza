@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tiza: мои темы</title>
+    <!-- Выбранная тема ставится до отрисовки, чтобы страница не мигала светлым. -->
+    <script>try{const t=localStorage.getItem("tiza:theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+    <link rel="stylesheet" href="/src/base.css" />
+    <link rel="stylesheet" href="/src/pages.css" />
+  </head>
+  <body>
+    <!-- Дорожная карта для ученика: открывается по ссылке учителя, только смотреть и открывать доски. -->
+    <main class="page">
+      <header>
+        <button class="theme-toggle" aria-label="Сменить тему"></button>
+        <p class="logo">Tiza</p>
+        <h1 id="title">Мои темы</h1>
+      </header>
+
+      <ol id="topics" class="topics"></ol>
+      <p id="message" class="empty" role="status">Загружаю темы… Если сервер спал, это до минуты.</p>
+    </main>
+
+    <script type="module" src="/src/roadmap.ts"></script>
+  </body>
+</html>

@@ -4,10 +4,11 @@
  * Открытые доски живут в памяти, а в базу сохраняются через пару секунд после изменений
  * и когда из комнаты уходит последний человек.
  */
-import { createServer } from 'node:http';
+import { createHash } from 'node:crypto';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { applyOp, type BoardData, type Op } from '../src/ops.ts';
-import { loadBoard, saveBoard, storeName } from './store.ts';
+import { loadBoard, loadRoadmap, saveBoard, saveRoadmap, storeName } from './store.ts';
 
 const PORT = Number(process.env.PORT ?? 8787);
 /** Сколько ждать после изменения, прежде чем писать в базу: подряд идущие правки сохраняются разом. */
@@ -55,10 +56,74 @@ function saveLater(room: string): void {
   if (!saveTimers.has(room)) saveTimers.set(room, setTimeout(() => flush(room), SAVE_DELAY));
 }
 
+/* ---------- дорожные карты учеников ---------- */
+// Учитель кладёт карту ученика по адресу /roadmap/<ключ ученика>, ученик её читает.
+// Менять карту можно только ключом учителя: сервер запоминает его отпечаток при первой записи.
+
+/** Карта — это названия тем и ключи досок, ей хватит и 100 КБ. */
+const MAX_ROADMAP = 100 * 1024;
+
+const hash = (key: string) => createHash('sha256').update(key).digest('hex');
+
+function reply(res: ServerResponse, status: number, body = '', type = 'text/plain; charset=utf-8'): void {
+  // Сайт живёт на другом адресе (GitHub Pages), поэтому браузеру нужно разрешение читать ответ.
+  res.writeHead(status, {
+    'content-type': type,
+    'access-control-allow-origin': '*',
+    'access-control-allow-methods': 'GET, PUT',
+    'access-control-allow-headers': 'content-type, authorization',
+  });
+  res.end(body);
+}
+
+function readBody(req: IncomingMessage): Promise<string | null> {
+  return new Promise((done) => {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+      if (body.length > MAX_ROADMAP) {
+        done(null);
+        req.destroy();
+      }
+    });
+    req.on('end', () => done(body));
+  });
+}
+
+async function roadmap(req: IncomingMessage, res: ServerResponse, id: string): Promise<void> {
+  if (!ROOM.test(id)) return reply(res, 404, 'Нет такой карты');
+  const stored = await loadRoadmap(id);
+  if (req.method === 'GET') {
+    return stored ? reply(res, 200, stored.data, 'application/json') : reply(res, 404, 'Нет такой карты');
+  }
+  if (req.method !== 'PUT') return reply(res, 405);
+  const key = req.headers.authorization?.replace(/^Bearer /, '') ?? '';
+  if (!ROOM.test(key) || (stored && stored.writeHash !== hash(key))) return reply(res, 403, 'Нет доступа');
+  const body = await readBody(req);
+  if (body === null) return reply(res, 413, 'Слишком большая карта');
+  try {
+    JSON.parse(body);
+  } catch {
+    return reply(res, 400, 'Это не карта');
+  }
+  await saveRoadmap(id, body, hash(key));
+  reply(res, 204);
+}
+
 // Обычный запрос по адресу сервера отвечает «работает» — так его проверит и хостинг.
-const http = createServer((_req, res) => {
-  res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
-  res.end(`Сервер Tiza работает. Открытых досок: ${rooms.size}.`);
+const http = createServer(async (req, res) => {
+  if (req.method === 'OPTIONS') return reply(res, 204);
+  const path = new URL(req.url ?? '/', 'http://localhost').pathname;
+  if (path.startsWith('/roadmap/')) {
+    try {
+      await roadmap(req, res, path.slice('/roadmap/'.length));
+    } catch (e) {
+      console.error('Ошибка дорожной карты:', e);
+      reply(res, 500, 'Ошибка базы');
+    }
+    return;
+  }
+  reply(res, 200, `Сервер Tiza работает. Открытых досок: ${rooms.size}.`);
 });
 
 // Картинки едут внутри изменений, поэтому сообщение может быть большим.

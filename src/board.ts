@@ -77,8 +77,12 @@ function showHeader(): void {
   const back = document.querySelector<HTMLAnchorElement>('#back')!;
   const title = document.querySelector<HTMLSpanElement>('#topic-title')!;
   if (isGuest) {
-    // Ученику некуда возвращаться: списка учеников у него нет.
-    back.hidden = true;
+    // Ученик возвращается к своей дорожной карте, если пришёл с неё.
+    const map = params.get('map');
+    if (map) {
+      back.href = `roadmap.html?${new URLSearchParams({ key: map })}`;
+      back.textContent = '← Мои темы';
+    } else back.hidden = true;
     title.textContent = params.get('title') ?? '';
     document.title = title.textContent ? `Tiza: ${title.textContent}` : 'Tiza';
     return;
@@ -100,22 +104,9 @@ function showNotice(text: string): void {
   notice.hidden = !text;
 }
 
-/* ---------- ссылка для ученика ---------- */
+/* ---------- доска ученика без сервера ---------- */
 
-const shareButton = document.querySelector<HTMLButtonElement>('#share')!;
-// Без сервера ученик не увидит доску учителя, поэтому и ссылка не нужна.
-shareButton.hidden = isGuest || !hasServer || !serverRoom;
 if (isGuest && !hasServer) showNotice('Сайт пока не подключён к серверу, поэтому доска учителя здесь не появится.');
-shareButton.addEventListener('click', async () => {
-  const link = new URL('board.html', location.href);
-  link.search = new URLSearchParams({ room: serverRoom ?? '', title: document.querySelector('#topic-title')!.textContent ?? '' }).toString();
-  try {
-    await navigator.clipboard.writeText(link.href);
-    showNotice('Ссылка скопирована: отправь её ученику.');
-  } catch {
-    showNotice(`Скопируй ссылку для ученика: ${link.href}`);
-  }
-});
 
 /* ---------- сохранение в браузере ---------- */
 

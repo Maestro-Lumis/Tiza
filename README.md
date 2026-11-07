@@ -60,6 +60,8 @@ npm run server
 | Мои ученики | `/` | `index.html`, `src/home.ts` |
 | Ученик и его дорожная карта | `/student.html?id=andrey` | `student.html`, `src/student.ts` |
 | Доска темы | `/board.html?student=andrey&topic=…` | `board.html`, `src/board.ts`, `src/board.css` |
+| Дорожная карта у ученика (по ссылке учителя) | `/roadmap.html?key=…` | `roadmap.html`, `src/roadmap.ts` |
+| Доска у ученика | `/board.html?room=…&map=…` | те же, что у доски темы |
 
 Общее:
 

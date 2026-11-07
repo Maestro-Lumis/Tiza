@@ -258,3 +258,40 @@ li:hover .row-actions,
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+
+/* Ссылка ученика на дорожную карту: тихая кнопка под заголовком и сообщение под ней. */
+.share-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.share-link[hidden],
+.share-notice[hidden] {
+  display: none;
+}
+
+.share-link:hover {
+  text-decoration: underline;
+}
+
+.share-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.share-notice {
+  margin: 8px 0 20px;
+  font-size: 13px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+/* Карта у ученика: статус только показывается, нажимать его нельзя. */
+.topics .status.is-static {
+  cursor: default;
+}

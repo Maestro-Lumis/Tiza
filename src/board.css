@@ -390,28 +390,3 @@ body {
     opacity: 0.25;
   }
 }
-
-/* Кнопка «Ссылка для ученика» в шапке: тихая, как ссылка «назад». */
-.share {
-  pointer-events: auto;
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  font-size: 13px;
-  color: var(--accent);
-  cursor: pointer;
-}
-
-.share[hidden] {
-  display: none;
-}
-
-.share:hover {
-  text-decoration: underline;
-}
-
-.share:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}

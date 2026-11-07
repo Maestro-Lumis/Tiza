@@ -2,7 +2,13 @@
 export type TopicStatus = 'done' | 'now' | 'next';
 /** room — секретный ключ доски на сервере: его знают только учитель и ученик по ссылке. */
 export type Topic = { id: string; title: string; status: TopicStatus; room?: string };
-export type Student = { id: string; name: string; topics?: Topic[] };
+/**
+ * share — ключи дорожной карты на сервере: read уходит ученику в ссылке,
+ * write остаётся только у учителя, им карту меняют.
+ */
+export type Student = { id: string; name: string; topics?: Topic[]; share?: { read: string; write: string } };
+/** Что видит ученик по своей ссылке: имя и темы с ключами досок. */
+export type Roadmap = { name: string; topics: { title: string; status: TopicStatus; room: string }[] };
 
 /** Ключ, под которым список учеников лежит в хранилище браузера. */
 const STORAGE_KEY = 'tiza:students';
@@ -72,7 +78,7 @@ export function addTopic(studentId: string, title: string): void {
  * Секретный ключ доски: 16 случайных байт (22 знака). Адрес доски на сервере не угадать,
  * попасть на неё можно только по ссылке учителя.
  */
-function newRoom(): string {
+export function newRoom(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
@@ -135,4 +141,25 @@ export function setTopicStatus(studentId: string, topicId: string, status: Topic
     const topic = s.topics?.find((t) => t.id === topicId);
     if (topic) topic.status = status;
   });
+}
+
+/* ---------- ссылка ученика на дорожную карту ---------- */
+
+/** Ключи карты ученика; при первом вызове придумывает их. */
+export function studentShare(id: string): { read: string; write: string } | null {
+  let share: Student['share'] | null = null;
+  updateStudent(id, (s) => (share = s.share ??= { read: newRoom(), write: newRoom() }));
+  return share;
+}
+
+/** Карта для ученика: без адресов и статусов учителя, только то, что ему нужно. */
+export function roadmapOf(student: Student): Roadmap {
+  return {
+    name: student.name,
+    topics: (student.topics ?? []).map((t) => ({
+      title: t.title,
+      status: t.status,
+      room: t.room ?? topicRoom(student.id, t.id) ?? '',
+    })),
+  };
 }

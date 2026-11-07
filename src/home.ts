@@ -1,6 +1,6 @@
 import { addRowActions } from './row-actions';
-import { addStudent, deleteStudent, loadStudents, renameStudent } from './students';
-import { wakeServer } from './sync';
+import { addStudent, deleteStudent, getStudent, loadStudents, renameStudent } from './students';
+import { syncRoadmap, wakeServer } from './sync';
 import './theme';
 
 const list = document.querySelector<HTMLUListElement>('#students')!;
@@ -20,7 +20,10 @@ function render(): void {
       const item = document.createElement('li');
       item.append(link);
       addRowActions(item, link, {
-        rename: (name) => renameStudent(s.id, name),
+        rename: (name) => {
+          renameStudent(s.id, name);
+          syncRoadmap(getStudent(s.id));
+        },
         remove: () => deleteStudent(s.id),
         deleteQuestion: `Удалить ученика «${s.name}» вместе со всеми темами и досками? Вернуть не получится.`,
         refresh: render,

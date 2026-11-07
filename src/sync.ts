@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { applyOp, type BoardData, type Op } from './ops';
+import { roadmapOf, type Roadmap, type Student } from './students';
 
 /**
  * Адрес сервера берётся из .env (VITE_SERVER_URL). Без него на localhost — свой сервер
@@ -117,4 +118,41 @@ export function connect(room: string | null, on: Handlers): (op: Op) => void {
     if (synced && ws?.readyState === WebSocket.OPEN) send({ type: 'op', op });
     else pending.push(op);
   };
+}
+
+/* ---------- дорожная карта ученика ---------- */
+
+/** Обычный адрес сервера (https://…) для запросов карты. */
+const HTTP = SERVER?.replace(/^ws/, 'http') ?? null;
+
+/** Кладёт карту ученика на сервер, чтобы он видел новые темы по своей ссылке. */
+export async function publishRoadmap(share: { read: string; write: string }, roadmap: Roadmap): Promise<boolean> {
+  if (!HTTP) return false;
+  try {
+    const res = await fetch(`${HTTP}/roadmap/${share.read}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${share.write}` },
+      body: JSON.stringify(roadmap),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Если у ученика уже есть ссылка, обновляем его карту на сервере (новая тема, статус, имя). */
+export function syncRoadmap(student: Student | undefined): void {
+  if (student?.share) void publishRoadmap(student.share, roadmapOf(student));
+}
+
+/** Карта ученика по ключу из его ссылки; null — такой нет или сервер недоступен. */
+export async function fetchRoadmap(key: string): Promise<Roadmap | 'missing' | null> {
+  if (!HTTP) return null;
+  try {
+    const res = await fetch(`${HTTP}/roadmap/${encodeURIComponent(key)}`);
+    if (res.status === 404) return 'missing';
+    return res.ok ? await res.json() : null;
+  } catch {
+    return null;
+  }
 }

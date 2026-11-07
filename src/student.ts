@@ -5,10 +5,12 @@ import {
   getStudent,
   renameTopic,
   setTopicStatus,
+  studentShare,
+  roadmapOf,
   type Topic,
   type TopicStatus,
 } from './students';
-import { wakeServer } from './sync';
+import { hasServer, publishRoadmap, syncRoadmap, wakeServer } from './sync';
 import './theme';
 
 const studentId = new URLSearchParams(location.search).get('id') ?? '';
@@ -19,6 +21,8 @@ const empty = document.querySelector<HTMLParagraphElement>('#empty')!;
 const form = document.querySelector<HTMLFormElement>('#add')!;
 const input = document.querySelector<HTMLInputElement>('#topic')!;
 const error = document.querySelector<HTMLParagraphElement>('#error')!;
+const shareButton = document.querySelector<HTMLButtonElement>('#share')!;
+const shareNotice = document.querySelector<HTMLParagraphElement>('#share-notice')!;
 
 const LABEL: Record<TopicStatus, string> = { done: 'пройдено', now: 'сейчас', next: 'впереди' };
 /** Клик по статусу переключает его по кругу: впереди → сейчас → пройдено → впереди. */
@@ -60,7 +64,33 @@ function render(): void {
   const topics = student.topics ?? [];
   list.replaceChildren(...topics.map(topicItem));
   empty.hidden = topics.length > 0;
+  // Темы и статусы меняются только здесь: сразу отправляем их ученику.
+  syncRoadmap(student);
 }
+
+/* ---------- ссылка ученика на дорожную карту ---------- */
+
+// Без сервера ученик не увидит ни карту, ни доски, поэтому и ссылка не нужна.
+shareButton.hidden = !hasServer;
+shareButton.addEventListener('click', async () => {
+  const share = studentShare(studentId);
+  const student = getStudent(studentId);
+  if (!share || !student) return;
+  shareNotice.hidden = false;
+  shareNotice.textContent = 'Готовлю ссылку… Если сервер спал, это до минуты.';
+  if (!(await publishRoadmap(share, roadmapOf(student)))) {
+    shareNotice.textContent = 'Сервер не ответил. Попробуй ещё раз через минуту.';
+    return;
+  }
+  const link = new URL('roadmap.html', location.href);
+  link.search = new URLSearchParams({ key: share.read }).toString();
+  try {
+    await navigator.clipboard.writeText(link.href);
+    shareNotice.textContent = 'Ссылка скопирована: отправь её ученику один раз. Новые темы он увидит сам.';
+  } catch {
+    shareNotice.textContent = `Скопируй ссылку для ученика: ${link.href}`;
+  }
+});
 
 form.addEventListener('submit', (e) => {
   e.preventDefault();

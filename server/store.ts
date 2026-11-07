@@ -16,6 +16,10 @@ await db.execute(
   'CREATE TABLE IF NOT EXISTS boards (id TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at INTEGER NOT NULL)',
 );
 
+await db.execute(
+  'CREATE TABLE IF NOT EXISTS roadmaps (id TEXT PRIMARY KEY, data TEXT NOT NULL, write_hash TEXT NOT NULL, updated_at INTEGER NOT NULL)',
+);
+
 export const storeName = url.startsWith('file:') ? url.slice(5) : 'Turso';
 
 /** Доска из базы или null, если такой ещё нет. */
@@ -29,5 +33,24 @@ export async function saveBoard(id: string, board: BoardData): Promise<void> {
     sql: `INSERT INTO boards (id, data, updated_at) VALUES (?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
     args: [id, JSON.stringify(board), Date.now()],
+  });
+}
+
+/* ---------- дорожные карты учеников ---------- */
+
+/** Дорожная карта для ученика и отпечаток ключа учителя, которым её можно менять. */
+export type StoredRoadmap = { data: string; writeHash: string };
+
+export async function loadRoadmap(id: string): Promise<StoredRoadmap | null> {
+  const rs = await db.execute({ sql: 'SELECT data, write_hash FROM roadmaps WHERE id = ?', args: [id] });
+  const row = rs.rows[0];
+  return row ? { data: String(row.data), writeHash: String(row.write_hash) } : null;
+}
+
+export async function saveRoadmap(id: string, data: string, writeHash: string): Promise<void> {
+  await db.execute({
+    sql: `INSERT INTO roadmaps (id, data, write_hash, updated_at) VALUES (?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
+    args: [id, data, writeHash, Date.now()],
   });
 }
