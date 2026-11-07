@@ -20,6 +20,12 @@ export type Op =
   | { type: 'wipe'; list: ListName; id: string; wipe: Wipe }
   | { type: 'unwipe'; list: ListName; id: string; wipeId: string };
 
+/**
+ * След лазерной указки: летит к остальным сразу и нигде не сохраняется.
+ * start — первая точка нового движения, с прошлым следом её не соединяем.
+ */
+export type Laser = { type: 'laser'; x: number; y: number; start?: boolean };
+
 export const LISTS: ListName[] = ['strokes', 'images', 'cards', 'shapes'];
 
 export function emptyBoard(): BoardData {

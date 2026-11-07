@@ -6,6 +6,7 @@ export type ShapeKind =
   | 'rect'
   | 'ellipse'
   | 'triangle'
+  | 'right-triangle'
   | 'line'
   | 'arrow'
   | 'axes'
@@ -74,6 +75,27 @@ export function drawShape(ctx: CanvasRenderingContext2D, s: Shape): void {
       ctx.closePath();
       ctx.stroke();
       break;
+    case 'right-triangle': {
+      // Прямой угол там, откуда начали тянуть по вертикали: тянешь в любую сторону — треугольник поворачивается.
+      const vx = s.x;
+      const vy = s.y + s.h;
+      ctx.beginPath();
+      ctx.moveTo(vx, s.y);
+      ctx.lineTo(vx, vy);
+      ctx.lineTo(s.x + s.w, vy);
+      ctx.closePath();
+      ctx.stroke();
+      // Квадратик — знак прямого угла, внутри треугольника.
+      const m = Math.min(16, b.w / 4, b.h / 4);
+      const dx = Math.sign(s.w) * m;
+      const dy = -Math.sign(s.h) * m;
+      ctx.beginPath();
+      ctx.moveTo(vx, vy + dy);
+      ctx.lineTo(vx + dx, vy + dy);
+      ctx.lineTo(vx + dx, vy);
+      ctx.stroke();
+      break;
+    }
     case 'line':
       ctx.beginPath();
       ctx.moveTo(s.x, s.y);

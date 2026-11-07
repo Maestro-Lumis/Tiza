@@ -2,13 +2,14 @@ import { backgroundOf, contains, imageElement, readImage, rectOf, type BoardImag
 import { boardKey, getStudent, topicRoom } from './students';
 import { boundsOf, defaultSize, drawShape, type Shape, type ShapeKind } from './shapes';
 import { readDocx, splitTasks } from './tasks';
-import { applyOp, LISTS, type BoardData, type Item, type ListName, type Op, type Wipe } from './ops';
+import { applyOp, LISTS, type BoardData, type Item, type Laser, type ListName, type Op, type Wipe } from './ops';
 import { connect, hasServer, type LinkState } from './sync';
+import { readBoard, writeBoard } from './local';
 import './theme';
 
 type Point = { x: number; y: number };
 type Stroke = { id: string; color: string; points: Point[] };
-type Tool = 'pen' | 'eraser' | 'pointer' | 'laser' | 'shape';
+type Tool = 'pen' | 'eraser' | 'pointer' | 'laser' | 'shape' | 'select';
 /** Карточка задания из Word. Высота считается по тексту при отрисовке. */
 type Card = { id: string; x: number; y: number; w: number; h: number; title: string; text: string; wipes?: Wipe[] };
 /** То, что указка умеет двигать: картинка или карточка. */
@@ -114,11 +115,11 @@ if (isGuest && !hasServer) showNotice('Сайт пока не подключён
  * Достаёт сохранённую доску; если её нет или данные испорчены, доска пустая.
  * Старые доски хранились просто списком линий — их тоже понимаем.
  */
-function load(): { strokes: Stroke[]; images: BoardImage[]; cards: Card[]; shapes: Shape[] } {
+async function load(): Promise<{ strokes: Stroke[]; images: BoardImage[]; cards: Card[]; shapes: Shape[] }> {
   const empty = { strokes: [], images: [], cards: [], shapes: [] };
   if (isGuest) return empty; // доска ученика приходит с сервера
   try {
-    const data = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]');
+    const data = ((await readBoard(STORAGE_KEY)) ?? []) as { strokes?: unknown; images?: unknown; cards?: unknown; shapes?: unknown };
     const list = <T>(v: unknown): T[] => (Array.isArray(v) ? v : []);
     // У старых линий не было id, а без него другая вкладка не поймёт, какую линию стёрли.
     const withIds = (v: unknown): Stroke[] => list<Stroke>(v).map((s) => ({ ...s, id: s.id ?? newId() }));
@@ -133,19 +134,19 @@ function newId(): string {
   return crypto.randomUUID().slice(0, 8);
 }
 
+const NO_SPACE = 'В браузере не хватает места: последние изменения не сохранятся. Удали лишние картинки.';
+
 function save(): void {
   // У ученика доска живёт на сервере: в его браузере копию не держим.
   if (isGuest) return;
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ strokes, images, cards, shapes }));
-    showNotice('');
-  } catch {
-    // Чаще всего кончилось место: картинки занимают много. Рисовать можно, но не сохранится.
-    showNotice('В браузере не хватает места: последние изменения не сохранятся. Удали лишние картинки.');
-  }
+  writeBoard(STORAGE_KEY, { strokes, images, cards, shapes }).then(
+    () => notice.textContent === NO_SPACE && showNotice(''),
+    // Чаще всего кончилось место на диске. Рисовать можно, но не сохранится.
+    () => showNotice(NO_SPACE),
+  );
 }
 
-const board = load();
+const board = await load();
 /** Все нарисованные линии. */
 const strokes: Stroke[] = board.strokes;
 /** Картинки на доске; они лежат под линиями, чтобы по скриншоту можно было рисовать. */
@@ -170,11 +171,18 @@ let tool: Tool = 'pen';
 
 /** Выбранная указкой картинка или карточка. */
 let selected: Movable | null = null;
+/** Рамка выделения, которую тянем сейчас, и всё, что попало в выделенный участок. */
+let marquee: { start: Point; end: Point } | null = null;
+let picked: { strokes: Stroke[]; images: BoardImage[]; cards: Card[]; shapes: Shape[] } | null = null;
 /**
  * След лазерной указки: точки доски со временем появления.
  * Он ничего не рисует на доске и не сохраняется — только показывает, куда смотреть.
  */
-let laserTrail: { x: number; y: number; t: number }[] = [];
+/** Точка следа: где, когда появилась и начинает ли новое движение. */
+type LaserPoint = { x: number; y: number; t: number; start?: boolean };
+/** Свой след и след того, кто на другом конце (учитель видит лазер ученика, и наоборот). */
+let laserTrail: LaserPoint[] = [];
+let remoteTrail: LaserPoint[] = [];
 let laserDown = false;
 let laserFrame = 0;
 
@@ -383,6 +391,85 @@ function drawSelection(i: Movable): void {
   ctx.fillRect(h.x, h.y, h.w, h.h);
 }
 
+/* ---------- выделение участка ---------- */
+
+/** Прямоугольник по двум углам, в любую сторону. */
+function rectBetween(a: Point, b: Point): Rect {
+  return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) };
+}
+
+function overlaps(a: Rect, b: Rect): boolean {
+  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+}
+
+/** Всё, что задевает рамка: линию — любой её точкой, предмет — любым краем. */
+function pickIn(r: Rect): NonNullable<typeof picked> {
+  const touched = <T extends Movable>(list: T[]) => list.filter((m) => overlaps(r, boxOf(m)));
+  return {
+    strokes: strokes.filter((s) => s.points.some((p) => contains(r, p))),
+    images: touched(images),
+    cards: touched(cards),
+    shapes: touched(shapes),
+  };
+}
+
+function pickedCount(): number {
+  return picked ? picked.strokes.length + picked.images.length + picked.cards.length + picked.shapes.length : 0;
+}
+
+/** Рамка, которую тянут, и пунктир вокруг выделенного. */
+function drawPicked(): void {
+  ctx.save();
+  ctx.strokeStyle = accentColor;
+  ctx.lineWidth = 1.5 / camera.zoom;
+  ctx.setLineDash([6 / camera.zoom, 4 / camera.zoom]);
+  if (marquee) {
+    const r = rectBetween(marquee.start, marquee.end);
+    ctx.fillStyle = accentColor;
+    ctx.globalAlpha = 0.08;
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    ctx.globalAlpha = 1;
+    ctx.strokeRect(r.x, r.y, r.w, r.h);
+  }
+  if (picked) {
+    const pad = 4 / camera.zoom;
+    for (const s of picked.strokes) {
+      const xs = s.points.map((p) => p.x);
+      const ys = s.points.map((p) => p.y);
+      const x = Math.min(...xs);
+      const y = Math.min(...ys);
+      ctx.strokeRect(x - pad, y - pad, Math.max(...xs) - x + pad * 2, Math.max(...ys) - y + pad * 2);
+    }
+    for (const m of [...picked.images, ...picked.cards, ...picked.shapes]) {
+      const b = boxOf(m);
+      ctx.strokeRect(b.x - pad, b.y - pad, b.w + pad * 2, b.h + pad * 2);
+    }
+  }
+  ctx.restore();
+}
+
+function clearPicked(): void {
+  if (!picked) return;
+  picked = null;
+  showNotice('');
+  draw();
+}
+
+/** Delete убирает всё выделенное разом; отменяется одним Ctrl/⌘ + Z. */
+function deletePicked(): void {
+  if (!picked) return;
+  const gone = picked;
+  picked = null;
+  showNotice('');
+  for (const s of gone.strokes) removeFrom(strokes, s);
+  for (const i of gone.images) removeFrom(images, i);
+  for (const c of gone.cards) removeFrom(cards, c);
+  for (const s of gone.shapes) removeFrom(shapes, s);
+  record({ kind: 'remove', ...gone });
+  draw();
+  save();
+}
+
 /** Прямоугольник предмета: у фигуры ширина и высота могут быть отрицательными. */
 function boxOf(m: Movable): Rect {
   return isShape(m) ? boundsOf(m) : m;
@@ -471,29 +558,38 @@ function draw(): void {
   for (const s of strokes) drawStroke(s);
 
   if (selected) drawSelection(selected);
+  drawPicked();
   if (tool === 'eraser' && eraserRing) drawEraserRing(eraserRing);
   drawLaser();
   updateLedge();
 }
 
-/** Рисует след лазера: свежие точки яркие и толстые, старые тают. */
+/** Рисует оба следа лазера. */
 function drawLaser(): void {
   const now = performance.now();
   laserTrail = laserTrail.filter((p) => now - p.t < LASER_LIFE);
-  if (!laserTrail.length) return;
+  remoteTrail = remoteTrail.filter((p) => now - p.t < LASER_LIFE);
+  drawTrail(laserTrail, now);
+  drawTrail(remoteTrail, now);
+}
+
+/** Один след: свежие точки яркие и толстые, старые тают. */
+function drawTrail(trail: LaserPoint[], now: number): void {
+  if (!trail.length) return;
   ctx.strokeStyle = accentColor;
   ctx.fillStyle = accentColor;
   ctx.lineCap = 'round';
-  for (let i = 1; i < laserTrail.length; i++) {
-    const a = 1 - (now - laserTrail[i].t) / LASER_LIFE;
+  for (let i = 1; i < trail.length; i++) {
+    if (trail[i].start) continue; // новое движение: с прошлым следом не соединяем
+    const a = 1 - (now - trail[i].t) / LASER_LIFE;
     ctx.globalAlpha = a;
     ctx.lineWidth = (2 + 5 * a) / camera.zoom;
     ctx.beginPath();
-    ctx.moveTo(laserTrail[i - 1].x, laserTrail[i - 1].y);
-    ctx.lineTo(laserTrail[i].x, laserTrail[i].y);
+    ctx.moveTo(trail[i - 1].x, trail[i - 1].y);
+    ctx.lineTo(trail[i].x, trail[i].y);
     ctx.stroke();
   }
-  const head = laserTrail[laserTrail.length - 1];
+  const head = trail[trail.length - 1];
   ctx.globalAlpha = 1 - (now - head.t) / LASER_LIFE;
   ctx.beginPath();
   ctx.arc(head.x, head.y, 6 / camera.zoom, 0, Math.PI * 2);
@@ -503,7 +599,7 @@ function drawLaser(): void {
 
 /** Пока след виден, перерисовываем доску каждый кадр, чтобы он плавно таял. */
 function animateLaser(): void {
-  if (laserFrame || !laserTrail.length) return;
+  if (laserFrame || (!laserTrail.length && !remoteTrail.length)) return;
   laserFrame = requestAnimationFrame(() => {
     laserFrame = 0;
     draw();
@@ -511,8 +607,9 @@ function animateLaser(): void {
   });
 }
 
-function addLaserPoint(p: Point): void {
-  laserTrail.push({ ...p, t: performance.now() });
+function addLaserPoint(p: Point, start = false): void {
+  laserTrail.push({ x: p.x, y: p.y, t: performance.now(), start });
+  link.laser({ type: 'laser', x: p.x, y: p.y, start });
   animateLaser();
 }
 
@@ -562,14 +659,25 @@ function resetView(): void {
 }
 
 /** Курсор подсказывает, что сейчас произойдёт; at — точка доски под мышью (для указки). */
+/**
+ * Курсор лазера — светящаяся точка цвета следа, а не крестик: сразу видно, что это указка.
+ * Цвет берём из темы, поэтому собираем картинку на ходу.
+ */
+function laserCursor(): string {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><circle cx="12" cy="12" r="10" fill="${accentColor}" opacity="0.25"/><circle cx="12" cy="12" r="5" fill="${accentColor}"/><circle cx="12" cy="12" r="2" fill="#fff" opacity="0.8"/></svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 12 12, crosshair`;
+}
+
 function updateCursor(at?: Point): void {
   if (panning) canvas.style.cursor = 'grabbing';
   else if (spaceHeld) canvas.style.cursor = 'grab';
   else if (tool === 'eraser') canvas.style.cursor = 'none';
-  else if (tool === 'pen' || tool === 'laser' || tool === 'shape') canvas.style.cursor = 'crosshair';
+  else if (tool === 'laser') canvas.style.cursor = laserCursor();
+  else if (tool === 'pen' || tool === 'shape' || tool === 'select') canvas.style.cursor = 'crosshair';
   else if (dragging?.mode === 'resize' || (at && selected && contains(handleRect(selected), at))) canvas.style.cursor = 'nwse-resize';
-  else if (dragging || (at && imageAt(at))) canvas.style.cursor = 'move';
-  else canvas.style.cursor = 'default';
+  // Указка — лапка: схватить можно и предмет, и саму доску.
+  else if (dragging) canvas.style.cursor = 'grabbing';
+  else canvas.style.cursor = 'grab';
 }
 
 /* ---------- история: отмена и возврат ---------- */
@@ -873,6 +981,7 @@ function select(button: HTMLButtonElement): void {
   tool = (button.dataset.tool as Tool | undefined) ?? 'pen';
   if (tool === 'pen') color = button.dataset.color!;
   if (tool !== 'pointer') selected = null;
+  if (tool !== 'select') clearPicked();
   updateCursor();
   draw();
   // @ts-ignore
@@ -941,9 +1050,16 @@ canvas.addEventListener('pointerdown', (e) => {
     draw();
     return;
   }
+  if (tool === 'select') {
+    // Новая рамка: прежнее выделение снимается.
+    picked = null;
+    showNotice('');
+    marquee = { start: p, end: p };
+    return;
+  }
   if (tool === 'laser') {
     laserDown = true;
-    addLaserPoint(p);
+    addLaserPoint(p, true);
     return;
   }
   if (tool === 'shape') {
@@ -1002,6 +1118,10 @@ canvas.addEventListener('pointermove', (e) => {
   }
   if (tool === 'pointer') return updateCursor(pointOf(e));
   if (laserDown) return addLaserPoint(pointOf(e));
+  if (marquee) {
+    marquee.end = pointOf(e);
+    return draw();
+  }
   if (draft) {
     const p = pointOf(e);
     draft.w = p.x - draft.x;
@@ -1036,6 +1156,14 @@ function finish(): void {
       record({ kind: 'move', image: selected, from, to });
       changed = true;
     }
+  }
+  if (marquee) {
+    picked = pickIn(rectBetween(marquee.start, marquee.end));
+    marquee = null;
+    const n = pickedCount();
+    if (!n) picked = null;
+    showNotice(n ? `Выделено: ${n}. Delete — удалить, Esc — снять выделение.` : '');
+    draw();
   }
   current = null;
   erased = null;
@@ -1147,7 +1275,16 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
-  // Delete или Backspace убирают выбранную картинку, Esc снимает выбор.
+  // Delete или Backspace убирают выделенный участок или выбранную картинку, Esc снимает выбор.
+  if ((e.key === 'Delete' || e.key === 'Backspace') && picked) {
+    e.preventDefault();
+    deletePicked();
+    return;
+  }
+  if (e.key === 'Escape' && picked) {
+    clearPicked();
+    return;
+  }
   if ((e.key === 'Delete' || e.key === 'Backspace') && selected) {
     e.preventDefault();
     deleteSelected();
@@ -1164,11 +1301,12 @@ window.addEventListener('keydown', (e) => {
   }
 
   if (key === 'l' || key === 'д') select(palette.querySelector<HTMLButtonElement>('[data-tool="laser"]')!);
-  // 1, 2, 3 — мелки по порядку; E — губка; V — указка; L — лазер.
+  // 1, 2, 3 — мелки по порядку; E — губка; V — указка; L — лазер; S — выделение.
   const chalk = palette.querySelectorAll<HTMLButtonElement>('[data-color]')[Number(e.key) - 1];
   if (chalk) select(chalk);
   if (key === 'e' || key === 'у') select(palette.querySelector<HTMLButtonElement>('[data-tool="eraser"]')!);
   if (key === 'v' || key === 'м') select(palette.querySelector<HTMLButtonElement>('[data-tool="pointer"]')!);
+  if (key === 's' || key === 'ы') select(palette.querySelector<HTMLButtonElement>('[data-tool="select"]')!);
 });
 
 window.addEventListener('keyup', (e) => {
@@ -1206,7 +1344,7 @@ function showLink(state: LinkState): void {
   linkStatus.dataset.tip = LINK_TEXT[state][1];
 }
 
-const sendOp = connect(serverRoom, {
+const link = connect(serverRoom, {
   local: () => (isGuest ? null : live),
   init(board) {
     for (const list of LISTS) {
@@ -1228,12 +1366,27 @@ const sendOp = connect(serverRoom, {
   },
   op(op) {
     applyOp(live, op);
+    // Кто-то другой стёр выделенное: из выделения оно тоже уходит.
+    if (picked) {
+      picked = {
+        strokes: picked.strokes.filter((x) => strokes.includes(x)),
+        images: picked.images.filter((x) => images.includes(x)),
+        cards: picked.cards.filter((x) => cards.includes(x)),
+        shapes: picked.shapes.filter((x) => shapes.includes(x)),
+      };
+      if (!pickedCount()) clearPicked();
+    }
     if (selected && ![...images, ...cards, ...shapes].includes(selected)) selected = null;
     draw();
     save();
   },
   state: showLink,
+  laser(point: Laser) {
+    remoteTrail.push({ x: point.x, y: point.y, t: performance.now(), start: point.start });
+    animateLaser();
+  },
 });
+const sendOp = link.send;
 
 readTheme();
 resize();

@@ -1,3 +1,5 @@
+import { deleteBoard } from './local';
+
 /** Тема в дорожной карте: пройдена, идёт сейчас или впереди. */
 export type TopicStatus = 'done' | 'now' | 'next';
 /** room — секретный ключ доски на сервере: его знают только учитель и ученик по ссылке. */
@@ -101,11 +103,7 @@ export function boardKey(studentId: string, topicId: string): string {
 }
 
 function removeBoard(studentId: string, topicId: string): void {
-  try {
-    localStorage.removeItem(boardKey(studentId, topicId));
-  } catch {
-    // Хранилище недоступно: удалять нечего.
-  }
+  deleteBoard(boardKey(studentId, topicId));
 }
 
 /** Меняет только имя: адрес ученика (andrey) остаётся прежним, ссылки не ломаются. */

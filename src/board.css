@@ -179,13 +179,28 @@ body {
 
 /* ---------- указка и картинка на полке ---------- */
 
-/* Указка: деревянная палочка с тёмным кончиком. */
+/* Указка — лапка: ею хватают и двигают предметы и саму доску. */
 .pointer {
-  width: 96px;
-  height: 8px;
+  width: 40px;
+  height: 36px;
   margin-right: 12px;
-  border-radius: 0 4px 4px 0;
-  background: linear-gradient(90deg, var(--ink) 0 6px, #b98a55 6px);
+  background: none;
+}
+
+.pointer svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill: #b98a55;
+  stroke: rgba(0, 0, 0, 0.2);
+  stroke-width: 1;
+}
+
+/* У лапки и лазера нет прямоугольного фона: тень рисуем по их форме. */
+.shelf .pointer[aria-pressed='true'],
+.shelf .laser[aria-pressed='true'] {
+  box-shadow: none;
+  filter: drop-shadow(0 9px 4px var(--shade));
 }
 
 /* Картинка: рамка с «горами» внутри, как фотография на полке. */
@@ -236,17 +251,82 @@ body {
   box-shadow: 0 0 0 1px var(--wood-dark);
 }
 
-/* Лазерная указка: тёмный корпус с горящим кончиком слева. */
-.laser {
-  width: 64px;
-  height: 12px;
+/* Выделение: пунктирная рамка с квадратиками по углам, как у выделенного участка. */
+.lasso {
+  width: 34px;
+  height: 30px;
   margin-left: 12px;
-  border-radius: 6px;
-  background:
-    radial-gradient(circle at 6px 50%, var(--accent) 0 4px, transparent 5px),
-    linear-gradient(90deg, transparent 0 8px, #2f2d2a 8px);
-  /* Корпус всегда тёмный, чтобы в тёмной теме лазер не путался с белым мелом. */
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  background: none;
+}
+
+.lasso svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.lasso .frame {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.6;
+  stroke-dasharray: 4 3;
+}
+
+.lasso .corner {
+  fill: var(--card);
+  stroke: var(--accent);
+  stroke-width: 1.4;
+}
+
+.shelf .lasso[aria-pressed='true'] {
+  box-shadow: none;
+  filter: drop-shadow(0 9px 4px var(--shade));
+}
+
+/* Лазерная указка: тёмный корпус с кнопкой, из кончика бьёт луч с горящей точкой. */
+.laser {
+  width: 84px;
+  height: 26px;
+  margin-left: 12px;
+  background: none;
+}
+
+.laser svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Корпус — серый металл: виден и на светлой, и на тёмной полке, не путается с белым мелом. */
+.laser .body {
+  fill: #6d6964;
+  stroke: rgba(0, 0, 0, 0.35);
+}
+
+.laser .tip {
+  fill: #c9c4bb;
+}
+
+.laser .button,
+.laser .spot {
+  fill: var(--accent);
+}
+
+.laser .glow {
+  fill: var(--accent);
+  opacity: 0.3;
+}
+
+.laser .beam {
+  stroke: var(--accent);
+  stroke-width: 2;
+  opacity: 0.6;
+}
+
+.laser .shine {
+  stroke: rgba(255, 255, 255, 0.35);
+  stroke-width: 1.2;
+  stroke-linecap: round;
 }
 
 /* ---------- ящик с фигурами ---------- */

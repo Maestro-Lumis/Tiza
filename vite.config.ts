@@ -6,6 +6,8 @@ export default defineConfig({
   // Относительные пути: сайт работает и на localhost, и на GitHub Pages по адресу /Tiza/.
   base: './',
   build: {
+    // Доска сначала дожидается сохранённых данных (await в начале модуля), это нужно современным браузерам.
+    target: 'es2022',
     rollupOptions: {
       input: {
         home: resolve(import.meta.dirname, 'index.html'),

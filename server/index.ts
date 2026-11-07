@@ -7,7 +7,7 @@
 import { createHash } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { applyOp, type BoardData, type Op } from '../src/ops.ts';
+import { applyOp, type BoardData, type Laser, type Op } from '../src/ops.ts';
 import { loadBoard, loadRoadmap, saveBoard, saveRoadmap, storeName } from './store.ts';
 
 const PORT = Number(process.env.PORT ?? 8787);
@@ -25,7 +25,11 @@ type Message =
   | { type: 'empty' } // сервер → вкладка: доски ещё нет, пришли свою
   | { type: 'missing' } // сервер → вкладка: ключ доски неверный, связи не будет
   | { type: 'seed'; board: BoardData } // вкладка → сервер: первая версия доски
-  | { type: 'op'; op: Op }; // в обе стороны: одно изменение
+  | { type: 'op'; op: Op } // в обе стороны: одно изменение
+  | Laser // в обе стороны: точка лазерной указки, не сохраняется
+  | { type: 'ack' } // сервер → вкладка: изменение принято (по порядку)
+  | { type: 'ping' } // вкладка → сервер: связь жива?
+  | { type: 'pong' }; // сервер → вкладка: жива
 
 /** Открытые доски. Пока доска грузится из базы, здесь лежит обещание её загрузить. */
 const boards = new Map<string, Promise<BoardData | null>>();
@@ -129,7 +133,17 @@ const http = createServer(async (req, res) => {
 // Картинки едут внутри изменений, поэтому сообщение может быть большим.
 const wss = new WebSocketServer({ server: http, maxPayload: 10 * 1024 * 1024 });
 
+/**
+ * Вкладки стучатся раз в 10 секунд. Кто молчит минуту, тот уже не с нами (закрыли ноутбук,
+ * пропал интернет): закрываем, чтобы комната не держала мёртвые соединения.
+ */
+const lastSeen = new WeakMap<WebSocket, number>();
+setInterval(() => {
+  for (const ws of wss.clients) if (Date.now() - (lastSeen.get(ws) ?? 0) > 60_000) ws.terminate();
+}, 30_000).unref();
+
 wss.on('connection', async (ws, req) => {
+  lastSeen.set(ws, Date.now());
   const room = new URL(req.url ?? '/', 'http://localhost').searchParams.get('board');
   if (!room || !ROOM.test(room)) {
     // Код закрытия хостинг может потерять по дороге, поэтому сначала говорим словами.
@@ -145,6 +159,7 @@ wss.on('connection', async (ws, req) => {
   const ready = openBoard(room);
 
   ws.on('message', async (data) => {
+    lastSeen.set(ws, Date.now());
     let msg: Message;
     try {
       msg = JSON.parse(String(data));
@@ -160,6 +175,10 @@ wss.on('connection', async (ws, req) => {
       saveLater(room);
       // Ученик мог открыть доску раньше учителя и ждёт её.
       for (const peer of peers) if (peer !== ws && peer.readyState === peer.OPEN) send(peer, { type: 'init', board: msg.board });
+    } else if (msg.type === 'ping') {
+      send(ws, { type: 'pong' });
+    } else if (msg.type === 'laser') {
+      for (const peer of peers) if (peer !== ws && peer.readyState === peer.OPEN) send(peer, msg);
     } else if (msg.type === 'op') {
       const target = (await boards.get(room)) ?? board;
       if (target) {
@@ -167,6 +186,7 @@ wss.on('connection', async (ws, req) => {
         saveLater(room);
       }
       for (const peer of peers) if (peer !== ws && peer.readyState === peer.OPEN) send(peer, msg);
+      send(ws, { type: 'ack' });
     }
   });
 
