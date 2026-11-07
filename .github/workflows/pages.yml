@@ -26,6 +26,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+        env:
+          # Адрес сервера совместной доски. Он открытый (виден в коде сайта), ключей тут нет.
+          VITE_SERVER_URL: wss://tiza-server.onrender.com
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
