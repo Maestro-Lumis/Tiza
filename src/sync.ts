@@ -12,7 +12,7 @@ const SERVER: string | null =
 const RETRY = 2000;
 
 /** Есть ли связь: подключаемся (сервер может просыпаться до минуты), на связи или нет связи. */
-export type LinkState = 'connecting' | 'online' | 'offline' | 'waiting';
+export type LinkState = 'connecting' | 'online' | 'offline' | 'waiting' | 'missing';
 
 /** Сервер подключён: значок связи на доске имеет смысл показывать. */
 export const hasServer = SERVER !== null;
@@ -44,8 +44,10 @@ type Handlers = {
  * Подключает доску к серверу. Возвращает функцию, которая отправляет свои изменения.
  * Пока связи нет (сервер просыпается или пропал), изменения копятся и уходят после подключения:
  * сервер присылает свою доску, к ней сверху применяются накопленные изменения.
+ * Без ключа доски (общая доска без ученика) связи нет: доска живёт только в браузере.
  */
-export function connect(room: string, on: Handlers): (op: Op) => void {
+export function connect(room: string | null, on: Handlers): (op: Op) => void {
+  const server = room ? SERVER : null;
   let ws: WebSocket | null = null;
   /** Были ли уже на связи: до первого раза это «подключение…» (сервер просыпается), потом — «нет связи». */
   let wasOnline = false;
@@ -62,8 +64,8 @@ export function connect(room: string, on: Handlers): (op: Op) => void {
   const send = (msg: object) => ws!.send(JSON.stringify(msg));
 
   function open(): void {
-    if (!SERVER) return;
-    ws = new WebSocket(`${SERVER}/?board=${encodeURIComponent(room)}`);
+    if (!server || !room) return;
+    ws = new WebSocket(`${server}/?board=${encodeURIComponent(room)}`);
     synced = false;
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
@@ -91,8 +93,10 @@ export function connect(room: string, on: Handlers): (op: Op) => void {
         on.state('online');
       }
     };
-    ws.onclose = () => {
+    ws.onclose = (e) => {
       synced = false;
+      // 1008 — сервер не пустил: ключ доски неверный, пробовать снова бесполезно.
+      if (e.code === 1008) return on.state('missing');
       // Не знаем, дошла ли своя доска до сервера, — на всякий случай пошлём её изменения снова.
       pending.unshift(...seeded.splice(0));
       on.state(wasOnline ? 'offline' : 'connecting');
@@ -100,10 +104,10 @@ export function connect(room: string, on: Handlers): (op: Op) => void {
     };
   }
 
-  if (SERVER) on.state('connecting');
+  if (server) on.state('connecting');
   open();
   return (op) => {
-    if (!SERVER) return;
+    if (!server) return;
     if (synced && ws?.readyState === WebSocket.OPEN) send({ type: 'op', op });
     else pending.push(op);
   };

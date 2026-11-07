@@ -12,6 +12,11 @@ import { loadBoard, saveBoard, storeName } from './store.ts';
 const PORT = Number(process.env.PORT ?? 8787);
 /** Сколько ждать после изменения, прежде чем писать в базу: подряд идущие правки сохраняются разом. */
 const SAVE_DELAY = 2000;
+/**
+ * Ключ доски — 22 случайных знака из ссылки учителя. Другие адреса не пускаем:
+ * так никто не создаст доски с придуманными именами и не подберёт чужую.
+ */
+const ROOM = /^[A-Za-z0-9_-]{22}$/;
 
 /** Сообщения между доской и сервером. */
 type Message =
@@ -60,7 +65,7 @@ const wss = new WebSocketServer({ server: http, maxPayload: 10 * 1024 * 1024 });
 
 wss.on('connection', async (ws, req) => {
   const room = new URL(req.url ?? '/', 'http://localhost').searchParams.get('board');
-  if (!room) return ws.close(1008, 'Нужен параметр board');
+  if (!room || !ROOM.test(room)) return ws.close(1008, 'Нет такой доски');
 
   if (!rooms.has(room)) rooms.set(room, new Set());
   const peers = rooms.get(room)!;

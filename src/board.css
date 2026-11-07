@@ -213,6 +213,9 @@ body {
   background: var(--ink);
   color: var(--paper);
   font-size: 13px;
+  /* Ссылку для ученика переносим где угодно, иначе она вылезает за рамку. */
+  overflow-wrap: anywhere;
+  user-select: text;
 }
 
 .notice[hidden] {
@@ -354,6 +357,10 @@ body {
   height: 8px;
   border-radius: 50%;
   background: var(--link-dot);
+}
+
+.link-status[data-state='missing'] {
+  --link-dot: #c0392b;
 }
 
 /* Ученик ждёт, пока учитель откроет доску: точка спокойная, не тревожная. */

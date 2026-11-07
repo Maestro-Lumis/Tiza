@@ -1,6 +1,7 @@
 /** Тема в дорожной карте: пройдена, идёт сейчас или впереди. */
 export type TopicStatus = 'done' | 'now' | 'next';
-export type Topic = { id: string; title: string; status: TopicStatus };
+/** room — секретный ключ доски на сервере: его знают только учитель и ученик по ссылке. */
+export type Topic = { id: string; title: string; status: TopicStatus; room?: string };
 export type Student = { id: string; name: string; topics?: Topic[] };
 
 /** Ключ, под которым список учеников лежит в хранилище браузера. */
@@ -62,9 +63,28 @@ function updateStudent(id: string, change: (s: Student) => void): void {
 /** Новая тема встаёт в конец дорожной карты со статусом «впереди». */
 export function addTopic(studentId: string, title: string): void {
   updateStudent(studentId, (s) => {
-    const topic: Topic = { id: crypto.randomUUID().slice(0, 8), title, status: 'next' };
+    const topic: Topic = { id: crypto.randomUUID().slice(0, 8), title, status: 'next', room: newRoom() };
     s.topics = [...(s.topics ?? []), topic];
   });
+}
+
+/**
+ * Секретный ключ доски: 16 случайных байт (22 знака). Адрес доски на сервере не угадать,
+ * попасть на неё можно только по ссылке учителя.
+ */
+function newRoom(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** Ключ доски темы на сервере. У тем, созданных раньше, его ещё нет — придумываем при первом открытии. */
+export function topicRoom(studentId: string, topicId: string): string | null {
+  let room: string | null = null;
+  updateStudent(studentId, (s) => {
+    const topic = s.topics?.find((t) => t.id === topicId);
+    if (topic) room = topic.room ??= newRoom();
+  });
+  return room;
 }
 
 /* ---------- переименование и удаление ---------- */

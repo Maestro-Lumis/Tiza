@@ -1,5 +1,5 @@
 import { backgroundOf, contains, imageElement, readImage, rectOf, type BoardImage, type Rect } from './images';
-import { boardKey, getStudent } from './students';
+import { boardKey, getStudent, topicRoom } from './students';
 import { boundsOf, defaultSize, drawShape, type Shape, type ShapeKind } from './shapes';
 import { readDocx, splitTasks } from './tasks';
 import { applyOp, LISTS, type BoardData, type Item, type ListName, type Op, type Wipe } from './ops';
@@ -54,6 +54,8 @@ const topicId = params.get('topic');
 const room = params.get('room');
 const isGuest = room !== null;
 const STORAGE_KEY = room ?? (studentId && topicId ? boardKey(studentId, topicId) : 'tiza:board');
+/** Секретный ключ доски на сервере: у ученика он из ссылки, у учителя — из темы. */
+const serverRoom = room ?? (studentId && topicId ? topicRoom(studentId, topicId) : null);
 
 const canvas = document.querySelector<HTMLCanvasElement>('#board')!;
 const mainCtx = canvas.getContext('2d')!;
@@ -102,11 +104,11 @@ function showNotice(text: string): void {
 
 const shareButton = document.querySelector<HTMLButtonElement>('#share')!;
 // Без сервера ученик не увидит доску учителя, поэтому и ссылка не нужна.
-shareButton.hidden = isGuest || !hasServer || !studentId || !topicId;
+shareButton.hidden = isGuest || !hasServer || !serverRoom;
 if (isGuest && !hasServer) showNotice('Сайт пока не подключён к серверу, поэтому доска учителя здесь не появится.');
 shareButton.addEventListener('click', async () => {
   const link = new URL('board.html', location.href);
-  link.search = new URLSearchParams({ room: STORAGE_KEY, title: document.querySelector('#topic-title')!.textContent ?? '' }).toString();
+  link.search = new URLSearchParams({ room: serverRoom ?? '', title: document.querySelector('#topic-title')!.textContent ?? '' }).toString();
   try {
     await navigator.clipboard.writeText(link.href);
     showNotice('Ссылка скопирована: отправь её ученику.');
@@ -1202,6 +1204,7 @@ const LINK_TEXT: Record<LinkState, [string, string]> = {
   connecting: ['подключение…', 'Сервер просыпается, это бывает до минуты. Пока ученик не видит твоих изменений.'],
   online: ['на связи', 'Ученик видит изменения на доске сразу.'],
   offline: ['нет связи', 'Связь с сервером пропала, пробую снова. Пока ученик не видит твоих изменений.'],
+  missing: ['доска не найдена', 'Ссылка неверная или устарела. Попроси у учителя новую.'],
   waiting: ['ждём учителя', 'Учитель ещё не открывал эту доску. Она появится, как только он её откроет.'],
 };
 
@@ -1212,7 +1215,7 @@ function showLink(state: LinkState): void {
   linkStatus.dataset.tip = LINK_TEXT[state][1];
 }
 
-const sendOp = connect(STORAGE_KEY, {
+const sendOp = connect(serverRoom, {
   local: () => (isGuest ? null : live),
   init(board) {
     for (const list of LISTS) {
