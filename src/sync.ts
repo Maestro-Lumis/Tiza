@@ -53,6 +53,8 @@ export function connect(room: string | null, on: Handlers): (op: Op) => void {
   let wasOnline = false;
   /** Сервер прислал доску в этом соединении: теперь изменения можно слать сразу. */
   let synced = false;
+  /** Сервер сказал, что такой доски нет: больше не стучимся. */
+  let missing = false;
   /** Изменения, которые ещё не дошли до сервера. */
   const pending: Op[] = [];
   /**
@@ -69,6 +71,10 @@ export function connect(room: string | null, on: Handlers): (op: Op) => void {
     synced = false;
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
+      if (msg.type === 'missing') {
+        missing = true;
+        return on.state('missing');
+      }
       if (msg.type === 'empty') {
         const board = on.local();
         if (!board) return on.state('waiting'); // сервер пришлёт доску, когда её откроет учитель
@@ -95,8 +101,8 @@ export function connect(room: string | null, on: Handlers): (op: Op) => void {
     };
     ws.onclose = (e) => {
       synced = false;
-      // 1008 — сервер не пустил: ключ доски неверный, пробовать снова бесполезно.
-      if (e.code === 1008) return on.state('missing');
+      // Сервер не пустил: ключ доски неверный, пробовать снова бесполезно.
+      if (missing || e.code === 1008) return on.state('missing');
       // Не знаем, дошла ли своя доска до сервера, — на всякий случай пошлём её изменения снова.
       pending.unshift(...seeded.splice(0));
       on.state(wasOnline ? 'offline' : 'connecting');

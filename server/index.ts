@@ -22,6 +22,7 @@ const ROOM = /^[A-Za-z0-9_-]{22}$/;
 type Message =
   | { type: 'init'; board: BoardData } // сервер → вкладка: вот доска целиком
   | { type: 'empty' } // сервер → вкладка: доски ещё нет, пришли свою
+  | { type: 'missing' } // сервер → вкладка: ключ доски неверный, связи не будет
   | { type: 'seed'; board: BoardData } // вкладка → сервер: первая версия доски
   | { type: 'op'; op: Op }; // в обе стороны: одно изменение
 
@@ -65,7 +66,11 @@ const wss = new WebSocketServer({ server: http, maxPayload: 10 * 1024 * 1024 });
 
 wss.on('connection', async (ws, req) => {
   const room = new URL(req.url ?? '/', 'http://localhost').searchParams.get('board');
-  if (!room || !ROOM.test(room)) return ws.close(1008, 'Нет такой доски');
+  if (!room || !ROOM.test(room)) {
+    // Код закрытия хостинг может потерять по дороге, поэтому сначала говорим словами.
+    send(ws, { type: 'missing' });
+    return ws.close(1008, 'Нет такой доски');
+  }
 
   if (!rooms.has(room)) rooms.set(room, new Set());
   const peers = rooms.get(room)!;
