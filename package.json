@@ -1,6 +1,6 @@
 {
   "name": "tiza",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Tiza: онлайн-доска для уроков с учеником",
   "type": "module",
   "scripts": {
