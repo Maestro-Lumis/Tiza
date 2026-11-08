@@ -977,7 +977,7 @@ async function insertTasks(file: File): Promise<void> {
   try {
     const tasks = splitTasks(await readDocx(file));
     if (!tasks.length) {
-      showNotice('В документе не нашлось заданий. Каждое должно начинаться с «Задание 1», «Упражнение 2» или «№ 3».');
+      showNotice('В документе не нашлось заданий. Каждое должно начинаться с «Задание 1», «№ 3» или быть пунктом нумерованного списка.');
       return;
     }
     const start = toBoard({ x: 40, y: 72 });
