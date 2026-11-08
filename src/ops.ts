@@ -16,7 +16,8 @@ export type BoardData = Record<ListName, Item[]>;
 export type Op =
   | { type: 'add'; list: ListName; items: Item[] }
   | { type: 'remove'; list: ListName; ids: string[] }
-  | { type: 'move'; list: ListName; id: string; rect: { x: number; y: number; w: number; h: number } }
+  // s — масштаб карточки задания (у картинок и фигур его нет).
+  | { type: 'move'; list: ListName; id: string; rect: { x: number; y: number; w: number; h: number; s?: number } }
   | { type: 'wipe'; list: ListName; id: string; wipe: Wipe }
   | { type: 'unwipe'; list: ListName; id: string; wipeId: string };
 

@@ -11,7 +11,10 @@ type Point = { x: number; y: number };
 type Stroke = { id: string; color: string; points: Point[] };
 type Tool = 'pen' | 'eraser' | 'pointer' | 'laser' | 'shape' | 'select';
 /** Карточка задания из Word. Высота считается по тексту при отрисовке. */
-type Card = { id: string; x: number; y: number; w: number; h: number; title: string; text: string; wipes?: Wipe[] };
+/** s — масштаб: карточку можно увеличить или уменьшить целиком, вместе с текстом. */
+type Card = { id: string; x: number; y: number; w: number; h: number; s?: number; title: string; text: string; wipes?: Wipe[] };
+/** Место и размер предмета, у карточки ещё и масштаб: так их запоминает история. */
+type Box = Rect & { s?: number };
 /** То, что указка умеет двигать: картинка или карточка. */
 type Movable = BoardImage | Card | Shape;
 /**
@@ -20,7 +23,7 @@ type Movable = BoardImage | Card | Shape;
  */
 type Change =
   | { kind: 'add' | 'remove'; strokes: Stroke[]; images?: BoardImage[]; cards?: Card[]; shapes?: Shape[] }
-  | { kind: 'move'; image: Movable; from: Rect; to: Rect }
+  | { kind: 'move'; image: Movable; from: Box; to: Box }
   | { kind: 'erase'; removed: Stroke[]; added: Stroke[]; wipes: { item: Movable; wipe: Wipe }[] };
 
 /** Радиус губки в пикселях экрана: такой, чтобы стереть одну букву. */
@@ -34,6 +37,9 @@ const MIN_IMAGE = 24;
 /** Карточки заданий: ширина по умолчанию, самая узкая, отступы и шрифт — в координатах доски. */
 const CARD_WIDTH = 420;
 const MIN_CARD = 200;
+/** Во сколько раз карточку можно уменьшить и увеличить. */
+const MIN_CARD_SCALE = 0.4;
+const MAX_CARD_SCALE = 4;
 const CARD_PAD = 16;
 const CARD_GAP = 24;
 const CARD_LINE = 26;
@@ -187,7 +193,9 @@ let laserDown = false;
 let laserFrame = 0;
 
 /** Что делаем с картинкой, пока зажата кнопка мыши: двигаем или меняем размер. */
-let dragging: { mode: 'move' | 'resize'; start: Point; from: Rect } | null = null;
+let dragging: { mode: 'move' | 'resize'; start: Point; from: Box } | null = null;
+/** Какая кнопка горела на полке, пока правой кнопкой мыши показываем лазер. */
+let heldTool: HTMLButtonElement | null = null;
 
 const undoStack: Change[] = [];
 const redoStack: Change[] = [];
@@ -345,23 +353,47 @@ function layoutTable(table: string[][], left: number, top: number, width: number
   return y;
 }
 
+/** Место и размер предмета для истории; у карточки вместе с масштабом. */
+function boxSnapshot(m: Movable): Box {
+  return isCard(m) ? { ...rectOf(m), s: m.s ?? 1 } : rectOf(m);
+}
+
+/**
+ * Карточку раскладываем в её собственном размере (масштаб 1, угол в нуле),
+ * а рисуем увеличенной или уменьшенной: так текст растёт вместе с листом.
+ */
+function inCard(c: Card, paint: (local: Card) => void): void {
+  const s = c.s ?? 1;
+  ctx.save();
+  ctx.translate(c.x, c.y);
+  ctx.scale(s, s);
+  paint({ ...c, x: 0, y: 0, w: c.w / s });
+  ctx.restore();
+}
+
 /** Рисует лист карточки и заодно запоминает её высоту по содержимому. */
 function drawCardSheet(c: Card): CardLayout {
-  const layout = layoutCard(c);
-  c.h = layout.h;
-
-  ctx.fillStyle = cardColor;
-  ctx.strokeStyle = lineColor;
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.roundRect(c.x, c.y, c.w, c.h, 10);
-  ctx.fill();
-  ctx.stroke();
+  let layout!: CardLayout;
+  inCard(c, (local) => {
+    layout = layoutCard(local);
+    ctx.fillStyle = cardColor;
+    ctx.strokeStyle = lineColor;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect(0, 0, local.w, layout.h, 10);
+    ctx.fill();
+    ctx.stroke();
+  });
+  c.h = layout.h * (c.s ?? 1);
   return layout;
 }
 
 /** Текст карточки: заголовок и строки задания. Губка стирает только его, лист остаётся. */
 function drawCardText(c: Card, layout: CardLayout): void {
+  inCard(c, (local) => drawCardLines(local, layout));
+}
+
+function drawCardLines(c: Card, layout: CardLayout): void {
   ctx.fillStyle = accentColor;
   ctx.font = `600 14px ${FONT}`;
   ctx.textBaseline = 'top';
@@ -1024,6 +1056,24 @@ shapesBox.addEventListener('click', (e) => {
 canvas.addEventListener('pointerdown', (e) => {
   const p = pointOf(e);
   toggleBox(false);
+  // Правая кнопка мыши — лазер, каким бы инструментом ни рисовали: зажал и показываешь.
+  if (e.button === 2) {
+    e.preventDefault();
+    // На полке на это время горит лазер, а отпустил кнопку — вернётся то, что было.
+    heldTool = palette.querySelector<HTMLButtonElement>('[aria-pressed="true"]');
+    for (const b of palette.querySelectorAll<HTMLButtonElement>('[aria-pressed]')) {
+      b.setAttribute('aria-pressed', String(b.dataset.tool === 'laser'));
+    }
+    canvas.style.cursor = laserCursor();
+    laserDown = true;
+    addLaserPoint(p, true);
+    try {
+      canvas.setPointerCapture(e.pointerId);
+    } catch {
+      // Указатель уже отпущен.
+    }
+    return;
+  }
   // Средняя кнопка мыши или зажатый пробел — двигаем доску.
   if (e.button === 1 || spaceHeld) {
     e.preventDefault();
@@ -1033,11 +1083,11 @@ canvas.addEventListener('pointerdown', (e) => {
   }
   if (tool === 'pointer') {
     if (selected && contains(handleRect(selected), p)) {
-      dragging = { mode: 'resize', start: p, from: rectOf(selected) };
+      dragging = { mode: 'resize', start: p, from: boxSnapshot(selected) };
     } else {
       selected = imageAt(p);
       // Мимо картинок указка двигает саму доску.
-      if (selected) dragging = { mode: 'move', start: p, from: rectOf(selected) };
+      if (selected) dragging = { mode: 'move', start: p, from: boxSnapshot(selected) };
       else panning = screenPoint(e);
     }
     try {
@@ -1085,6 +1135,8 @@ canvas.addEventListener('pointermove', (e) => {
     panning = p;
     return draw();
   }
+  // Лазер раньше остальных: правой кнопкой его включают поверх любого инструмента.
+  if (laserDown) return addLaserPoint(pointOf(e));
   if (dragging && selected) {
     const p = pointOf(e);
     const dx = p.x - dragging.start.x;
@@ -1098,8 +1150,18 @@ canvas.addEventListener('pointermove', (e) => {
       selected.w = from.w + dx;
       selected.h = from.h + dy;
     } else if (isCard(selected)) {
-      // У карточки меняется только ширина, текст сам переносится, высота подстроится.
-      selected.w = Math.max(MIN_CARD, from.w + dx);
+      const s0 = from.s ?? 1;
+      if (e.shiftKey) {
+        // С Shift меняется только ширина: текст переносится по-новому, высота подстроится.
+        selected.w = Math.max(MIN_CARD * s0, from.w + dx);
+      } else {
+        // Без Shift карточка растёт или уменьшается целиком, вместе с текстом.
+        // Уголок идёт за мышью вдоль диагонали карточки: широкая низкая карточка не раздувается от лёгкого движения вниз.
+        const k = ((from.w + dx) * from.w + (from.h + dy) * from.h) / (from.w * from.w + from.h * from.h);
+        const s = Math.min(MAX_CARD_SCALE, Math.max(MIN_CARD_SCALE, s0 * k));
+        selected.s = s;
+        selected.w = (from.w * s) / s0;
+      }
     } else if (e.shiftKey) {
       // С зажатым Shift ширина и высота меняются отдельно: картинку можно сплющить или вытянуть.
       selected.w = Math.max(MIN_IMAGE, from.w + dx);
@@ -1117,7 +1179,6 @@ canvas.addEventListener('pointermove', (e) => {
     return erased ? eraseTo(eraserRing) : draw();
   }
   if (tool === 'pointer') return updateCursor(pointOf(e));
-  if (laserDown) return addLaserPoint(pointOf(e));
   if (marquee) {
     marquee.end = pointOf(e);
     return draw();
@@ -1150,9 +1211,9 @@ function finish(): void {
     changed = true;
   }
   if (dragging && selected) {
-    const to = rectOf(selected);
+    const to = boxSnapshot(selected);
     const from = dragging.from;
-    if (to.x !== from.x || to.y !== from.y || to.w !== from.w || to.h !== from.h) {
+    if (to.x !== from.x || to.y !== from.y || to.w !== from.w || to.h !== from.h || to.s !== from.s) {
       record({ kind: 'move', image: selected, from, to });
       changed = true;
     }
@@ -1170,6 +1231,12 @@ function finish(): void {
   panning = null;
   dragging = null;
   laserDown = false;
+  if (heldTool) {
+    for (const b of palette.querySelectorAll<HTMLButtonElement>('[aria-pressed]')) {
+      b.setAttribute('aria-pressed', String(b === heldTool));
+    }
+    heldTool = null;
+  }
   updateCursor();
   if (changed) save();
 }
@@ -1179,6 +1246,8 @@ canvas.addEventListener('pointerleave', () => {
   if (tool === 'eraser') draw();
 });
 canvas.addEventListener('pointerup', finish);
+// Правая кнопка занята лазером: меню браузера над доской не нужно.
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 canvas.addEventListener('pointercancel', finish);
 
 /** Колесо или два пальца на тачпаде двигают доску; с Ctrl/⌘ (или щипок) — масштаб. */
