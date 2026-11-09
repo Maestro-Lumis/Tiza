@@ -5,6 +5,7 @@ import { readDocx, splitTasks } from './tasks';
 import { applyOp, LISTS, type BoardData, type Item, type Laser, type ListName, type Op, type Wipe } from './ops';
 import { connect, hasServer, type LinkState } from './sync';
 import { readBoard, writeBoard } from './local';
+import { downloadNotebook } from './notebook';
 import './theme';
 
 type Point = { x: number; y: number };
@@ -513,29 +514,32 @@ function boxOf(m: Movable): Rect {
  */
 function withWipes(item: Movable, paint: () => void): void {
   if (!item.wipes?.length) return paint();
-  if (layer.width !== canvas.width || layer.height !== canvas.height) {
-    layer.width = canvas.width;
-    layer.height = canvas.height;
+  // Рисуем туда же, куда и всё остальное: на экран или на лист тетради.
+  const base = ctx;
+  if (layer.width !== base.canvas.width || layer.height !== base.canvas.height) {
+    layer.width = base.canvas.width;
+    layer.height = base.canvas.height;
   }
-  const transform = mainCtx.getTransform();
+  const transform = base.getTransform();
   layerCtx.setTransform(1, 0, 0, 1, 0, 0);
   layerCtx.clearRect(0, 0, layer.width, layer.height);
   layerCtx.setTransform(transform);
-  layerCtx.lineWidth = mainCtx.lineWidth;
+  layerCtx.lineWidth = base.lineWidth;
   layerCtx.lineCap = layerCtx.lineJoin = 'round';
-  layerCtx.strokeStyle = mainCtx.strokeStyle;
-  layerCtx.fillStyle = mainCtx.fillStyle;
+  layerCtx.strokeStyle = base.strokeStyle;
+  layerCtx.fillStyle = base.fillStyle;
   ctx = layerCtx;
   paint();
-  ctx = mainCtx;
+  ctx = base;
 
   layerCtx.globalCompositeOperation = 'destination-out';
   strokeWipes(layerCtx, item, '#000');
   layerCtx.globalCompositeOperation = 'source-over';
 
-  mainCtx.setTransform(1, 0, 0, 1, 0, 0);
-  mainCtx.drawImage(layer, 0, 0);
-  mainCtx.setTransform(transform);
+  base.save();
+  base.setTransform(1, 0, 0, 1, 0, 0);
+  base.drawImage(layer, 0, 0);
+  base.restore();
 }
 
 /** Проводит следы губки по предмету указанным цветом. */
@@ -567,7 +571,17 @@ function draw(): void {
   ctx.fillStyle = paperColor;
   ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
   ctx.setTransform(dpr * camera.zoom, 0, 0, dpr * camera.zoom, dpr * camera.x, dpr * camera.y);
+  drawItems(draft);
 
+  if (selected) drawSelection(selected);
+  drawPicked();
+  if (tool === 'eraser' && eraserRing) drawEraserRing(eraserRing);
+  drawLaser();
+  updateLedge();
+}
+
+/** Всё, что лежит на доске: картинки, карточки, фигуры и линии. Без выделения и лазера. */
+function drawItems(extra: Shape | null): void {
   for (const i of images) {
     const img = imageElement(i, draw);
     if (!img) continue;
@@ -583,17 +597,11 @@ function draw(): void {
   ctx.lineWidth = 3;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  for (const s of draft ? [...shapes, draft] : shapes) {
+  for (const s of extra ? [...shapes, extra] : shapes) {
     ctx.strokeStyle = ctx.fillStyle = chalkColors[s.color] ?? s.color;
     withWipes(s, () => drawShape(ctx, s));
   }
   for (const s of strokes) drawStroke(s);
-
-  if (selected) drawSelection(selected);
-  drawPicked();
-  if (tool === 'eraser' && eraserRing) drawEraserRing(eraserRing);
-  drawLaser();
-  updateLedge();
 }
 
 /** Рисует оба следа лазера. */
@@ -965,6 +973,87 @@ function deleteSelected(): void {
   save();
 }
 
+/* ---------- тетрадь: доска в PDF ---------- */
+
+/** Прямоугольники всего, что лежит на доске. */
+function itemBoxes(): Rect[] {
+  const strokeBoxes = strokes.map((st) => {
+    const xs = st.points.map((p) => p.x);
+    const ys = st.points.map((p) => p.y);
+    const x = Math.min(...xs);
+    const y = Math.min(...ys);
+    return { x: x - 3, y: y - 3, w: Math.max(...xs) - x + 6, h: Math.max(...ys) - y + 6 };
+  });
+  return [...images.map(rectOf), ...cards.map(rectOf), ...shapes.map(boundsOf), ...strokeBoxes];
+}
+
+/**
+ * Рисует доску в печатных цветах светлой темы: белый мел становится графитом,
+ * карточки — светлыми листами. После этого возвращаем цвета текущей темы.
+ */
+function paintForPrint(target: CanvasRenderingContext2D): void {
+  paperColor = '#ffffff';
+  cardColor = '#fffcf4';
+  lineColor = '#d7cdb7';
+  inkColor = '#25231f';
+  accentColor = '#ae4f29';
+  // Код мела и есть его цвет на светлой бумаге.
+  for (const code of Object.keys(CHALK_VARS)) chalkColors[code] = code;
+  ctx = target;
+  try {
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    drawItems(null);
+  } finally {
+    ctx = mainCtx;
+    readTheme();
+  }
+}
+
+/** Ждём картинки, которые ещё грузятся, но не дольше нескольких секунд. */
+async function imagesReady(): Promise<void> {
+  for (let tries = 0; tries < 50; tries++) {
+    if (images.every((i) => imageElement(i, draw))) return;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
+
+let downloading = false;
+
+async function downloadPdf(): Promise<void> {
+  if (downloading) return;
+  const boxes = itemBoxes();
+  if (!boxes.length) {
+    showNotice('Доска пустая: в тетрадь пока нечего положить.');
+    return;
+  }
+  downloading = true;
+  showNotice('Собираю тетрадь…');
+  try {
+    await imagesReady();
+    const title = document.querySelector('#topic-title')?.textContent?.trim() || 'Доска';
+    const studentName = !isGuest && studentId ? getStudent(studentId)?.name : undefined;
+    const now = new Date();
+    const date = now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+    const day = now.toISOString().slice(0, 10);
+    const pages = await downloadNotebook({
+      boxes,
+      paint: paintForPrint,
+      title,
+      subtitle: studentName ? `${studentName} · ${date}` : date,
+      // В имени файла не должно быть знаков, которые запрещены в Windows.
+      fileName: `${title.replace(/[\\/:*?"<>|]/g, '-')} — ${day}.pdf`,
+    });
+    showNotice(`Тетрадь скачана: ${pages} ${pages === 1 ? 'лист' : pages < 5 ? 'листа' : 'листов'}.`);
+  } catch {
+    showNotice('Не получилось собрать PDF. Попробуй ещё раз.');
+  } finally {
+    downloading = false;
+    draw();
+  }
+}
+
 /**
  * Читает Word, находит задания («Задание 1», «№ 214»…) и кладёт их карточками
  * столбиком у левого края видимой части доски, чтобы справа было место для решения.
@@ -1300,6 +1389,7 @@ palette.addEventListener('click', (e) => {
   // Кнопка «картинка» не инструмент: она открывает выбор файла.
   if (button.id === 'add-image') return fileInput.click();
   if (button.id === 'add-doc') return docInput.click();
+  if (button.id === 'notebook') return void downloadPdf();
   // Ящик открывается своим обработчиком и сам не меняет инструмент.
   if (button.id === 'shapes-box') return;
   select(button);
