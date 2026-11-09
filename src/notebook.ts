@@ -1,148 +1,199 @@
 import type { Rect } from './images';
+import type { Wipe } from './ops';
 
 /**
- * Тетрадь: доска раскладывается по листам A4 и скачивается одним PDF.
- * Каждый лист — картинка: так рукописные формулы и рисунки выглядят ровно как на доске,
- * а русские буквы в заголовке не зависят от шрифтов внутри PDF.
+ * Тетрадь: листы - это рамки на доске. Что внутри рамки, то и попадает на страницу PDF,
+ * по порядку номеров. Каждая страница - картинка: рукописные формулы и рисунки выглядят
+ * ровно как на доске, а русские буквы не зависят от шрифтов внутри PDF.
  */
 
-/** Что нужно тетради от доски. */
-export type NotebookSource = {
-  /** Прямоугольники всего, что лежит на доске: по ним ищем, где можно разрезать лист. */
-  boxes: Rect[];
-  /** Рисует участок доски в печатных цветах. Преобразование координат уже настроено. */
-  paint: (ctx: CanvasRenderingContext2D) => void;
-  title: string;
-  subtitle: string;
-  fileName: string;
+/** Формат листа. У свободной рамки пропорции любые, у остальных держатся сами. */
+export type PageFormat = 'free' | 'a4' | 'a4-land' | 'a5' | 'wide' | 'square';
+
+/**
+ * Рамка листа на доске: f - формат, n - номер по порядку (может быть дробным).
+ * Губка рамку не трогает, wipes здесь только для общего вида предметов доски.
+ */
+export type Page = Rect & { id: string; f: PageFormat; n: number; wipes?: Wipe[] };
+
+/** Название, размер страницы PDF в миллиметрах (у свободной - только ширина). */
+export const FORMATS: Record<PageFormat, { label: string; w: number; h?: number }> = {
+  free: { label: 'Свободная', w: 210 },
+  a4: { label: 'A4 книжный', w: 210, h: 297 },
+  'a4-land': { label: 'A4 альбомный', w: 297, h: 210 },
+  a5: { label: 'A5', w: 148, h: 210 },
+  wide: { label: '16:9, как экран', w: 297, h: 167 },
+  square: { label: 'Квадрат', w: 210, h: 210 },
 };
 
-/** Размер листа A4 в миллиметрах. */
-const A4 = { w: 210, h: 297 };
-const MARGIN = 12;
-const HEADER = 16;
-const FOOTER = 10;
-/** Пикселей на миллиметр: около 200 точек на дюйм, чётко при печати и не слишком тяжело. */
-const PX_PER_MM = 8;
-/**
- * Самый крупный масштаб: миллиметров на единицу доски. Примерно как на экране,
- * чтобы маленькая доска не растягивалась на весь лист.
- */
-const MAX_SCALE = 0.3;
-/** Поле вокруг содержимого доски, в её единицах. */
-const PAD = 12;
+/** Высота к ширине для форматных рамок; у свободной null. */
+export function ratioOf(f: PageFormat): number | null {
+  const size = FORMATS[f];
+  return size.h ? size.h / size.w : null;
+}
+
+/** Качество: пикселей на миллиметр и сколько примерно весит лист. */
+export type Quality = 'light' | 'normal' | 'print';
+export const QUALITIES: Record<Quality, { label: string; pxPerMm: number }> = {
+  light: { label: 'Лёгкое - для телефона и мессенджеров', pxPerMm: 4 },
+  normal: { label: 'Обычное - для экрана и печати', pxPerMm: 8 },
+  print: { label: 'Для печати - самое чёткое', pxPerMm: 12 },
+};
+
+/** Поле страницы вокруг содержимого рамки, мм. */
+const MARGIN = 8;
+/** Самая большая сторона страницы в пикселях: больше браузер может не нарисовать. */
+const MAX_SIDE = 12000;
+/** Самая длинная свободная страница, мм: дальше лист уже не напечатать. */
+const MAX_FREE_HEIGHT = 1200;
 const FONT = "system-ui, -apple-system, 'Segoe UI', sans-serif";
 
-/** Общий прямоугольник для всех предметов. */
-function union(boxes: Rect[]): Rect {
-  const x1 = Math.min(...boxes.map((b) => b.x));
-  const y1 = Math.min(...boxes.map((b) => b.y));
-  const x2 = Math.max(...boxes.map((b) => b.x + b.w));
-  const y2 = Math.max(...boxes.map((b) => b.y + b.h));
-  return { x: x1 - PAD, y: y1 - PAD, w: x2 - x1 + PAD * 2, h: y2 - y1 + PAD * 2 };
+/** Размер страницы PDF для рамки, мм. Свободная рамка: ширина как у A4, высота по рамке. */
+export function pageSize(p: Page): { w: number; h: number } {
+  const size = FORMATS[p.f];
+  if (size.h) return { w: size.w, h: size.h };
+  // Широкую свободную рамку кладём на ширину альбомного листа.
+  const w = p.w > p.h ? 297 : 210;
+  return { w, h: Math.min(MAX_FREE_HEIGHT, Math.max(40, (w - MARGIN * 2) * (p.h / p.w) + MARGIN * 2)) };
+}
+
+/** Листы по порядку номеров. */
+export function ordered(pages: Page[]): Page[] {
+  return [...pages].sort((a, b) => a.n - b.n);
 }
 
 /**
- * Делит доску по высоте на куски размером с лист. Режем там, где ничего нет:
- * между карточками, рисунками и линиями, а пустые промежутки между листами пропускаем.
- * Если предмет выше листа, режем по краю листа: иначе его не вместить.
+ * Примерный вес PDF в килобайтах. Листы с линиями и текстом сжимаются хорошо,
+ * а с фотографиями и скриншотами весят в разы больше.
  */
-export function slicePages(boxes: Rect[], top: number, bottom: number, pageHeight: number): [number, number][] {
+export function estimateKb(pages: Page[], quality: Quality, hasPicture: (p: Page) => boolean): number {
+  const ppm = QUALITIES[quality].pxPerMm;
+  let bytes = 0;
+  for (const p of pages) {
+    const { w, h } = pageSize(p);
+    const px = w * ppm * h * ppm;
+    bytes += px * (hasPicture(p) ? 0.25 : 0.01);
+  }
+  return Math.max(10, Math.round(bytes / 1024));
+}
+
+/** «340 КБ» или «2,4 МБ». */
+export function formatSize(kb: number): string {
+  return kb < 1000 ? `${Math.round(kb / 10) * 10 || 10} КБ` : `${(kb / 1024).toFixed(1).replace('.', ',')} МБ`;
+}
+
+/** Что нужно тетради от доски для скачивания. */
+export type NotebookSource = {
+  pages: Page[];
+  /** Рисует доску в печатных цветах. Преобразование координат уже настроено. */
+  paint: (ctx: CanvasRenderingContext2D) => void;
+  hasPicture: (p: Page) => boolean;
+  quality: Quality;
+  title: string;
+  fileName: string;
+};
+
+/** Собирает PDF из рамок по порядку и отдаёт браузеру на скачивание. */
+export async function downloadNotebook(source: NotebookSource): Promise<void> {
+  const { jsPDF } = await import('jspdf');
+  const list = ordered(source.pages);
+  let pdf: InstanceType<typeof jsPDF> | null = null;
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d')!;
+
+  list.forEach((page, i) => {
+    const size = pageSize(page);
+    // Очень длинный лист рисуем реже, чтобы браузер его потянул.
+    const ppm = Math.min(QUALITIES[source.quality].pxPerMm, MAX_SIDE / Math.max(size.w, size.h));
+    canvas.width = Math.round(size.w * ppm);
+    canvas.height = Math.round(size.h * ppm);
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Рамка вписывается в поля страницы целиком и по центру.
+    const innerW = (size.w - MARGIN * 2) * ppm;
+    const innerH = (size.h - MARGIN * 2) * ppm;
+    const k = Math.min(innerW / page.w, innerH / page.h);
+    const left = MARGIN * ppm + (innerW - page.w * k) / 2;
+    const top = MARGIN * ppm + (innerH - page.h * k) / 2;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(left, top, page.w * k, page.h * k);
+    ctx.clip();
+    ctx.setTransform(k, 0, 0, k, left - page.x * k, top - page.y * k);
+    source.paint(ctx);
+    ctx.restore();
+
+    // Номер страницы в нижнем поле.
+    ctx.fillStyle = '#6b6559';
+    ctx.font = `${2.6 * ppm}px ${FONT}`;
+    ctx.textAlign = 'right';
+    ctx.fillText(`${i + 1} / ${list.length}`, (size.w - MARGIN) * ppm, (size.h - MARGIN / 3) * ppm);
+    ctx.textAlign = 'left';
+
+    const orientation = size.w > size.h ? 'landscape' : 'portrait';
+    if (!pdf) pdf = new jsPDF({ orientation, unit: 'mm', format: [size.w, size.h] });
+    else pdf.addPage([size.w, size.h], orientation);
+    // Фотографии лучше сжимает JPEG, линии и текст - PNG: они остаются чёткими.
+    const photo = source.hasPicture(page);
+    const data = photo ? canvas.toDataURL('image/jpeg', 0.9) : canvas.toDataURL('image/png');
+    pdf.addImage(data, photo ? 'JPEG' : 'PNG', 0, 0, size.w, size.h, undefined, 'FAST');
+  });
+  if (!pdf) return;
+  const doc = pdf as InstanceType<typeof jsPDF>;
+  doc.setProperties({ title: source.title });
+  doc.save(source.fileName);
+}
+
+/* ---------- разложить доску на листы самому ---------- */
+
+/** Поле вокруг содержимого, в единицах доски. */
+const PAD = 16;
+
+/**
+ * Делит доску по высоте на куски. Режем там, где ничего нет: между карточками,
+ * рисунками и линиями, а пустые промежутки между кусками пропускаем.
+ * Если предмет выше куска, режем по краю: иначе его не вместить.
+ */
+function slice(boxes: Rect[], top: number, bottom: number, height: number): [number, number][] {
   const spans = boxes.map((b) => [b.y - PAD, b.y + b.h + PAD] as const);
   const free = (y: number) => spans.every(([a, b]) => y <= a || y >= b);
-  const pages: [number, number][] = [];
+  const result: [number, number][] = [];
   let y = top;
   while (y < bottom - 1) {
-    const limit = y + pageHeight;
+    const limit = y + height;
     if (limit >= bottom) {
-      pages.push([y, bottom]);
+      result.push([y, bottom]);
       break;
     }
-    // Лучший разрез — самый нижний свободный край предмета, но не выше половины листа.
-    const candidates = spans
-      .flat()
-      .filter((c) => c > y + pageHeight * 0.4 && c <= limit && free(c))
-      .sort((a, b) => b - a);
-    const cut = candidates[0] ?? limit;
-    pages.push([y, cut]);
-    // Следующий лист начинается с ближайшего предмета ниже разреза, без пустоты сверху.
+    // Лучший разрез - самый нижний свободный край предмета, но не выше половины куска.
+    const cut =
+      spans
+        .flat()
+        .filter((c) => c > y + height * 0.4 && c <= limit && free(c))
+        .sort((a, b) => b - a)[0] ?? limit;
+    result.push([y, cut]);
+    // Следующий кусок начинается с ближайшего предмета ниже разреза, без пустоты сверху.
     const crossing = spans.some(([a, b]) => a < cut && b > cut);
     const below = spans.filter(([a]) => a >= cut).map(([a]) => a);
     y = crossing || !below.length ? cut : Math.min(...below);
   }
-  return pages;
+  return result;
 }
 
-/** Цвета печатного листа: всегда светлая бумага, как в светлой теме. */
-const INK = '#25231f';
-const MUTED = '#6b6559';
-const ACCENT = '#ae4f29';
-
-function drawHeader(ctx: CanvasRenderingContext2D, source: NotebookSource, width: number): void {
-  const mm = PX_PER_MM;
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = INK;
-  ctx.font = `600 ${5.2 * mm}px ${FONT}`;
-  ctx.fillText(source.title, MARGIN * mm, (MARGIN + 5) * mm, (width - MARGIN * 2 - 20) * mm);
-  ctx.fillStyle = MUTED;
-  ctx.font = `${3.4 * mm}px ${FONT}`;
-  ctx.fillText(source.subtitle, MARGIN * mm, (MARGIN + 10.5) * mm);
-  ctx.fillStyle = ACCENT;
-  ctx.font = `600 ${3.4 * mm}px ${FONT}`;
-  ctx.textAlign = 'right';
-  ctx.fillText('Tiza', (width - MARGIN) * mm, (MARGIN + 5) * mm);
-  ctx.textAlign = 'left';
-}
-
-function drawFooter(ctx: CanvasRenderingContext2D, page: number, total: number, width: number, height: number): void {
-  const mm = PX_PER_MM;
-  ctx.fillStyle = MUTED;
-  ctx.font = `${3 * mm}px ${FONT}`;
-  ctx.textAlign = 'center';
-  ctx.fillText(`${page} / ${total}`, (width / 2) * mm, (height - MARGIN + 2) * mm);
-  ctx.textAlign = 'left';
-}
-
-/** Собирает PDF и отдаёт его браузеру на скачивание. Возвращает число листов. */
-export async function downloadNotebook(source: NotebookSource): Promise<number> {
-  const area = union(source.boxes);
-  // Широкую доску удобнее читать на альбомном листе.
-  const landscape = area.w > area.h;
-  const page = landscape ? { w: A4.h, h: A4.w } : A4;
-  const printW = page.w - MARGIN * 2;
-  const printH = page.h - MARGIN - HEADER - FOOTER - MARGIN;
-  const scale = Math.min(printW / area.w, MAX_SCALE);
-  const slices = slicePages(source.boxes, area.y, area.y + area.h, printH / scale);
-
-  const { jsPDF } = await import('jspdf');
-  const pdf = new jsPDF({ orientation: landscape ? 'landscape' : 'portrait', unit: 'mm', format: 'a4' });
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.round(page.w * PX_PER_MM);
-  canvas.height = Math.round(page.h * PX_PER_MM);
-  const ctx = canvas.getContext('2d')!;
-  const k = scale * PX_PER_MM;
-  const left = MARGIN * PX_PER_MM;
-  const top = (MARGIN + HEADER) * PX_PER_MM;
-
-  slices.forEach(([y1, y2], i) => {
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    drawHeader(ctx, source, page.w);
-    drawFooter(ctx, i + 1, slices.length, page.w, page.h);
-
-    ctx.save();
-    // Обрезаем по куску: то, что разрезано краем листа, не залезает на поля.
-    ctx.beginPath();
-    ctx.rect(left, top, area.w * k, (y2 - y1) * k);
-    ctx.clip();
-    ctx.setTransform(k, 0, 0, k, left - area.x * k, top - y1 * k);
-    source.paint(ctx);
-    ctx.restore();
-
-    if (i > 0) pdf.addPage();
-    pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, page.w, page.h, undefined, 'FAST');
-  });
-  pdf.save(source.fileName);
-  return slices.length;
+/**
+ * Рамки, которые покрывают всё на доске. Ширина у всех одна - по самому широкому месту,
+ * высота куска как у листа A4 той же ширины. Рамки свободные: пустоты по краям не будет,
+ * а формат каждой можно сменить в тетради.
+ */
+export function autoLayout(boxes: Rect[]): Rect[] {
+  if (!boxes.length) return [];
+  const x1 = Math.min(...boxes.map((b) => b.x)) - PAD;
+  const x2 = Math.max(...boxes.map((b) => b.x + b.w)) + PAD;
+  const y1 = Math.min(...boxes.map((b) => b.y)) - PAD;
+  const y2 = Math.max(...boxes.map((b) => b.y + b.h)) + PAD;
+  const w = x2 - x1;
+  return slice(boxes, y1, y2, w * (297 / 210)).map(([a, b]) => ({ x: x1, y: a, w, h: b - a }));
 }

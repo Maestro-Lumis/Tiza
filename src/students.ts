@@ -2,10 +2,10 @@ import { deleteBoard } from './local';
 
 /** Тема в дорожной карте: пройдена, идёт сейчас или впереди. */
 export type TopicStatus = 'done' | 'now' | 'next';
-/** room — секретный ключ доски на сервере: его знают только учитель и ученик по ссылке. */
+/** room - секретный ключ доски на сервере: его знают только учитель и ученик по ссылке. */
 export type Topic = { id: string; title: string; status: TopicStatus; room?: string };
 /**
- * share — ключи дорожной карты на сервере: read уходит ученику в ссылке,
+ * share - ключи дорожной карты на сервере: read уходит ученику в ссылке,
  * write остаётся только у учителя, им карту меняют.
  */
 export type Student = { id: string; name: string; topics?: Topic[]; share?: { read: string; write: string } };
@@ -85,7 +85,7 @@ export function newRoom(): string {
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-/** Ключ доски темы на сервере. У тем, созданных раньше, его ещё нет — придумываем при первом открытии. */
+/** Ключ доски темы на сервере. У тем, созданных раньше, его ещё нет - придумываем при первом открытии. */
 export function topicRoom(studentId: string, topicId: string): string | null {
   let room: string | null = null;
   updateStudent(studentId, (s) => {
@@ -97,7 +97,7 @@ export function topicRoom(studentId: string, topicId: string): string | null {
 
 /* ---------- переименование и удаление ---------- */
 
-/** Ключ доски темы — тот же, что использует board.ts. */
+/** Ключ доски темы - тот же, что использует board.ts. */
 export function boardKey(studentId: string, topicId: string): string {
   return `tiza:board:${studentId}:${topicId}`;
 }

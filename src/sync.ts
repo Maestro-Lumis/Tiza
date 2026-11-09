@@ -3,7 +3,7 @@ import { applyOp, type BoardData, type Laser, type Op } from './ops';
 import { roadmapOf, type Roadmap, type Student } from './students';
 
 /**
- * Адрес сервера берётся из .env (VITE_SERVER_URL). Без него на localhost — свой сервер
+ * Адрес сервера берётся из .env (VITE_SERVER_URL). Без него на localhost - свой сервер
  * (npm run server), а на опубликованном сайте доска работает как раньше, без связи.
  * VITE_-значения видны всем в коде сайта, поэтому там только адрес, без ключей.
  */
@@ -27,7 +27,7 @@ export const hasServer = SERVER !== null;
 
 /**
  * Будит сервер заранее. Бесплатный сервер засыпает без посетителей и просыпается до минуты,
- * поэтому стучимся к нему уже со списка учеников — к открытию доски он успеет проснуться.
+ * поэтому стучимся к нему уже со списка учеников - к открытию доски он успеет проснуться.
  */
 export function wakeServer(): void {
   if (!SERVER) return;
@@ -37,7 +37,7 @@ export function wakeServer(): void {
 type Handlers = {
   /**
    * Своя доска целиком: её просит сервер, если доски у него ещё нет.
-   * null — своей доски нет (ученик): ждём, пока доску откроет учитель.
+   * null - своей доски нет (ученик): ждём, пока доску откроет учитель.
    */
   local: () => BoardData | null;
   /** Доска с сервера целиком: заменяет то, что было в вкладке. */
@@ -59,7 +59,7 @@ type Handlers = {
 export function connect(room: string | null, on: Handlers): { send: (op: Op) => void; laser: (point: Laser) => void } {
   const server = room ? SERVER : null;
   let ws: WebSocket | null = null;
-  /** Были ли уже на связи: до первого раза это «подключение…» (сервер просыпается), потом — «нет связи». */
+  /** Были ли уже на связи: до первого раза это «подключение…» (сервер просыпается), потом - «нет связи». */
   let wasOnline = false;
   /** Сервер прислал доску в этом соединении: теперь изменения можно слать сразу. */
   let synced = false;
@@ -69,10 +69,10 @@ export function connect(room: string | null, on: Handlers): { send: (op: Op) => 
   const pending: Op[] = [];
   /**
    * Изменения, уехавшие внутри своей доски (seed). Если другая вкладка успела раньше,
-   * сервер ответит своей доской — тогда их надо применить к ней заново.
+   * сервер ответит своей доской - тогда их надо применить к ней заново.
    */
   let seeded: Op[] = [];
-  /** Отправленные изменения, которые сервер ещё не подтвердил. Если связь оборвётся — пошлём снова. */
+  /** Отправленные изменения, которые сервер ещё не подтвердил. Если связь оборвётся - пошлём снова. */
   let unacked: Op[] = [];
   /** Когда сервер последний раз что-то присылал. */
   let heard = 0;
@@ -106,7 +106,7 @@ export function connect(room: string | null, on: Handlers): { send: (op: Op) => 
         seeded = pending.splice(0);
         send({ type: 'seed', board });
       } else if (msg.type === 'init') {
-        // Доска сервера + всё, что сделали без связи, — показываем и досылаем.
+        // Доска сервера + всё, что сделали без связи, - показываем и досылаем.
         const unsent = [...seeded, ...pending.splice(0)];
         seeded = [];
         for (const op of unsent) applyOp(msg.board, op);
@@ -131,7 +131,7 @@ export function connect(room: string | null, on: Handlers): { send: (op: Op) => 
     clearInterval(pinger);
     // Сервер не пустил: ключ доски неверный, пробовать снова бесполезно.
     if (missing || code === 1008) return on.state('missing');
-    // Не знаем, дошли ли своя доска и последние изменения, — на всякий случай пошлём их снова.
+    // Не знаем, дошли ли своя доска и последние изменения, - на всякий случай пошлём их снова.
     pending.unshift(...seeded.splice(0), ...unacked.splice(0));
     on.state(wasOnline ? 'offline' : 'connecting');
     setTimeout(open, RETRY);
@@ -191,7 +191,7 @@ export function syncRoadmap(student: Student | undefined): void {
   if (student?.share) void publishRoadmap(student.share, roadmapOf(student));
 }
 
-/** Карта ученика по ключу из его ссылки; null — такой нет или сервер недоступен. */
+/** Карта ученика по ключу из его ссылки; null - такой нет или сервер недоступен. */
 export async function fetchRoadmap(key: string): Promise<Roadmap | 'missing' | null> {
   if (!HTTP) return null;
   try {

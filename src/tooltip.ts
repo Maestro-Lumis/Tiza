@@ -1,12 +1,12 @@
 /**
  * Подсказка при наведении: что это за кнопка и какая у неё клавиша.
- * Текст берётся из data-tip, клавиша — из data-key. Обычный title браузер показывает
+ * Текст берётся из data-tip, клавиша - из data-key. Обычный title браузер показывает
  * поздно и мелко, поэтому подсказка своя: появляется быстро, над кнопкой.
  */
 
 /** Сколько миллисекунд держать курсор, пока не появится первая подсказка. */
 const DELAY = 300;
-/** На Mac вместо Ctrl пишем ⌘ — так подписаны клавиши на клавиатуре. */
+/** На Mac вместо Ctrl пишем ⌘ - так подписаны клавиши на клавиатуре. */
 const MAC = /Mac|iPhone|iPad/.test(navigator.platform);
 
 const tip = document.createElement('div');
@@ -25,7 +25,7 @@ function show(el: HTMLElement): void {
     tip.append(key);
   }
   tip.hidden = false;
-  // Над кнопкой по центру, но не за краем окна; у верхнего края — под кнопкой.
+  // Над кнопкой по центру, но не за краем окна; у верхнего края - под кнопкой.
   const r = el.getBoundingClientRect();
   const left = r.left + r.width / 2 - tip.offsetWidth / 2;
   const above = r.top - tip.offsetHeight - 10;

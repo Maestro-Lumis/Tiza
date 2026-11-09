@@ -179,7 +179,7 @@ body {
 
 /* ---------- указка и картинка на полке ---------- */
 
-/* Указка — лапка: ею хватают и двигают предметы и саму доску. */
+/* Указка - лапка: ею хватают и двигают предметы и саму доску. */
 .pointer {
   width: 40px;
   height: 36px;
@@ -311,7 +311,7 @@ body {
   height: 100%;
 }
 
-/* Корпус — серый металл: виден и на светлой, и на тёмной полке, не путается с белым мелом. */
+/* Корпус - серый металл: виден и на светлой, и на тёмной полке, не путается с белым мелом. */
 .laser .body {
   fill: #6d6964;
   stroke: rgba(0, 0, 0, 0.35);
@@ -462,7 +462,7 @@ body {
   --link-dot: var(--ink-2);
 }
 
-/* Зелёная точка — на связи, мигающая оранжевая — подключение, красная — нет связи. */
+/* Зелёная точка - на связи, мигающая оранжевая - подключение, красная - нет связи. */
 .link-status[data-state='online'] {
   --link-dot: #3f9b5f;
 }
@@ -483,4 +483,181 @@ body {
   to {
     opacity: 0.25;
   }
+}
+
+/* ---------- тетрадь ---------- */
+
+.shelf .notebook[aria-expanded='true'] {
+  transform: translateY(-12px);
+  box-shadow: 0 9px 6px var(--shade), 0 0 0 1px var(--wood-dark);
+}
+
+/* Панель справа над доской: список листов, формат, качество и скачивание. */
+.notebook-panel {
+  position: fixed;
+  top: 56px;
+  right: 16px;
+  bottom: 96px;
+  width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  overflow-y: auto;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: 0 10px 30px var(--shade);
+  font-size: 13px;
+}
+
+.notebook-panel[hidden] {
+  display: none;
+}
+
+.notebook-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.notebook-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.notebook-hint {
+  margin: 0;
+  color: var(--ink-2);
+  line-height: 1.4;
+}
+
+.notebook-hint[hidden] {
+  display: none;
+}
+
+.page-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.page-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+}
+
+.page-row.is-active {
+  border-color: var(--accent);
+}
+
+.page-number {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--paper);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.page-format {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
+
+.page-action {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.page-action:hover:not(:disabled) {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.page-action:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.notebook-label {
+  margin-top: 6px;
+  color: var(--ink-2);
+}
+
+.notebook-select {
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
+
+.notebook-row {
+  display: flex;
+  gap: 6px;
+}
+
+.notebook-button {
+  flex: 1;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.notebook-button:hover {
+  border-color: var(--ink-2);
+}
+
+.notebook-download {
+  margin-top: 8px;
+  height: 36px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--ink);
+  color: var(--paper);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.notebook-download:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.notebook-panel button:focus-visible,
+.notebook-panel select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }

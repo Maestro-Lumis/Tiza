@@ -1,6 +1,6 @@
 /**
  * Где сервер хранит доски: база libSQL. На хостинге это Turso (адрес и токен из .env),
- * у себя на компьютере — файл data/tiza.db. Код один и тот же, меняется только адрес.
+ * у себя на компьютере - файл data/tiza.db. Код один и тот же, меняется только адрес.
  */
 import { mkdirSync } from 'node:fs';
 import { createClient } from '@libsql/client';

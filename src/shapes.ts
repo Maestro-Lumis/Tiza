@@ -15,12 +15,12 @@ export type ShapeKind =
   | 'angle';
 
 /**
- * Фигура на доске. x, y — точка, откуда начали тянуть; w, h — куда дотянули (могут быть
- * отрицательными: у линии и стрелки это направление). Цвет — код мела, как у линий.
+ * Фигура на доске. x, y - точка, откуда начали тянуть; w, h - куда дотянули (могут быть
+ * отрицательными: у линии и стрелки это направление). Цвет - код мела, как у линий.
  */
 export type Shape = { id: string; kind: ShapeKind; color: string; x: number; y: number; w: number; h: number; wipes?: Wipe[] };
 
-/** Шаг клеток и делений — как клетка тетради. */
+/** Шаг клеток и делений - как клетка тетради. */
 const STEP = 24;
 
 /** Прямоугольник фигуры с положительными шириной и высотой. */
@@ -76,7 +76,7 @@ export function drawShape(ctx: CanvasRenderingContext2D, s: Shape): void {
       ctx.stroke();
       break;
     case 'right-triangle': {
-      // Прямой угол там, откуда начали тянуть по вертикали: тянешь в любую сторону — треугольник поворачивается.
+      // Прямой угол там, откуда начали тянуть по вертикали: тянешь в любую сторону - треугольник поворачивается.
       const vx = s.x;
       const vy = s.y + s.h;
       ctx.beginPath();
@@ -85,7 +85,7 @@ export function drawShape(ctx: CanvasRenderingContext2D, s: Shape): void {
       ctx.lineTo(s.x + s.w, vy);
       ctx.closePath();
       ctx.stroke();
-      // Квадратик — знак прямого угла, внутри треугольника.
+      // Квадратик - знак прямого угла, внутри треугольника.
       const m = Math.min(16, b.w / 4, b.h / 4);
       const dx = Math.sign(s.w) * m;
       const dy = -Math.sign(s.h) * m;
@@ -153,7 +153,7 @@ export function drawShape(ctx: CanvasRenderingContext2D, s: Shape): void {
       break;
     }
     case 'angle': {
-      // Вершина слева внизу, один луч вправо, второй — в правый верхний угол, дуга у вершины.
+      // Вершина слева внизу, один луч вправо, второй - в правый верхний угол, дуга у вершины.
       const vx = b.x;
       const vy = b.y + b.h;
       const a = Math.atan2(-b.h, b.w);

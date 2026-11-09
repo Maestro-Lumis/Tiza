@@ -5,37 +5,51 @@ import { readDocx, splitTasks } from './tasks';
 import { applyOp, LISTS, type BoardData, type Item, type Laser, type ListName, type Op, type Wipe } from './ops';
 import { connect, hasServer, type LinkState } from './sync';
 import { readBoard, writeBoard } from './local';
-import { downloadNotebook } from './notebook';
+import {
+  autoLayout,
+  downloadNotebook,
+  estimateKb,
+  FORMATS,
+  formatSize,
+  ordered,
+  QUALITIES,
+  ratioOf,
+  type Page,
+  type PageFormat,
+  type Quality,
+} from './notebook';
 import './theme';
 
 type Point = { x: number; y: number };
 type Stroke = { id: string; color: string; points: Point[] };
 type Tool = 'pen' | 'eraser' | 'pointer' | 'laser' | 'shape' | 'select';
 /** Карточка задания из Word. Высота считается по тексту при отрисовке. */
-/** s — масштаб: карточку можно увеличить или уменьшить целиком, вместе с текстом. */
+/** s - масштаб: карточку можно увеличить или уменьшить целиком, вместе с текстом. */
 type Card = { id: string; x: number; y: number; w: number; h: number; s?: number; title: string; text: string; wipes?: Wipe[] };
 /** Место и размер предмета, у карточки ещё и масштаб: так их запоминает история. */
-type Box = Rect & { s?: number };
-/** То, что указка умеет двигать: картинка или карточка. */
-type Movable = BoardImage | Card | Shape;
+type Box = Rect & { s?: number; f?: PageFormat; n?: number };
+/** То, что можно двигать: картинка, карточка, фигура или рамка листа тетради. */
+type Movable = BoardImage | Card | Shape | Page;
 /**
  * Одно действие для истории:
  * линии, картинки или карточки добавили / стёрли, либо что-то сдвинули или изменили размер.
  */
 type Change =
-  | { kind: 'add' | 'remove'; strokes: Stroke[]; images?: BoardImage[]; cards?: Card[]; shapes?: Shape[] }
+  | { kind: 'add' | 'remove'; strokes: Stroke[]; images?: BoardImage[]; cards?: Card[]; shapes?: Shape[]; pages?: Page[] }
   | { kind: 'move'; image: Movable; from: Box; to: Box }
+  // Несколько сдвигов разом, например два листа тетради поменялись местами.
+  | { kind: 'moves'; moves: { image: Movable; from: Box; to: Box }[] }
   | { kind: 'erase'; removed: Stroke[]; added: Stroke[]; wipes: { item: Movable; wipe: Wipe }[] };
 
 /** Радиус губки в пикселях экрана: такой, чтобы стереть одну букву. */
 const ERASER_RADIUS = 8;
 const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 5;
-/** Размер уголка для изменения размера картинки — в пикселях экрана. */
+/** Размер уголка для изменения размера картинки - в пикселях экрана. */
 const HANDLE = 12;
 /** Меньше этой ширины картинку не сжать. */
 const MIN_IMAGE = 24;
-/** Карточки заданий: ширина по умолчанию, самая узкая, отступы и шрифт — в координатах доски. */
+/** Карточки заданий: ширина по умолчанию, самая узкая, отступы и шрифт - в координатах доски. */
 const CARD_WIDTH = 420;
 const MIN_CARD = 200;
 /** Во сколько раз карточку можно уменьшить и увеличить. */
@@ -62,7 +76,7 @@ const topicId = params.get('topic');
 const room = params.get('room');
 const isGuest = room !== null;
 const STORAGE_KEY = room ?? (studentId && topicId ? boardKey(studentId, topicId) : 'tiza:board');
-/** Секретный ключ доски на сервере: у ученика он из ссылки, у учителя — из темы. */
+/** Секретный ключ доски на сервере: у ученика он из ссылки, у учителя - из темы. */
 const serverRoom = room ?? (studentId && topicId ? topicRoom(studentId, topicId) : null);
 
 const canvas = document.querySelector<HTMLCanvasElement>('#board')!;
@@ -120,18 +134,24 @@ if (isGuest && !hasServer) showNotice('Сайт пока не подключён
 
 /**
  * Достаёт сохранённую доску; если её нет или данные испорчены, доска пустая.
- * Старые доски хранились просто списком линий — их тоже понимаем.
+ * Старые доски хранились просто списком линий - их тоже понимаем.
  */
-async function load(): Promise<{ strokes: Stroke[]; images: BoardImage[]; cards: Card[]; shapes: Shape[] }> {
-  const empty = { strokes: [], images: [], cards: [], shapes: [] };
+async function load(): Promise<{ strokes: Stroke[]; images: BoardImage[]; cards: Card[]; shapes: Shape[]; pages: Page[] }> {
+  const empty = { strokes: [], images: [], cards: [], shapes: [], pages: [] };
   if (isGuest) return empty; // доска ученика приходит с сервера
   try {
-    const data = ((await readBoard(STORAGE_KEY)) ?? []) as { strokes?: unknown; images?: unknown; cards?: unknown; shapes?: unknown };
+    const data = ((await readBoard(STORAGE_KEY)) ?? []) as { strokes?: unknown; images?: unknown; cards?: unknown; shapes?: unknown; pages?: unknown };
     const list = <T>(v: unknown): T[] => (Array.isArray(v) ? v : []);
     // У старых линий не было id, а без него другая вкладка не поймёт, какую линию стёрли.
     const withIds = (v: unknown): Stroke[] => list<Stroke>(v).map((s) => ({ ...s, id: s.id ?? newId() }));
     if (Array.isArray(data)) return { ...empty, strokes: withIds(data) };
-    return { strokes: withIds(data.strokes), images: list(data.images), cards: list(data.cards), shapes: list(data.shapes) };
+    return {
+      strokes: withIds(data.strokes),
+      images: list(data.images),
+      cards: list(data.cards),
+      shapes: list(data.shapes),
+      pages: list(data.pages),
+    };
   } catch {
     return empty;
   }
@@ -144,9 +164,11 @@ function newId(): string {
 const NO_SPACE = 'В браузере не хватает места: последние изменения не сохранятся. Удали лишние картинки.';
 
 function save(): void {
+  // Любое изменение доски могло задеть листы тетради: обновляем её список.
+  renderNotebook();
   // У ученика доска живёт на сервере: в его браузере копию не держим.
   if (isGuest) return;
-  writeBoard(STORAGE_KEY, { strokes, images, cards, shapes }).then(
+  writeBoard(STORAGE_KEY, { strokes, images, cards, shapes, pages }).then(
     () => notice.textContent === NO_SPACE && showNotice(''),
     // Чаще всего кончилось место на диске. Рисовать можно, но не сохранится.
     () => showNotice(NO_SPACE),
@@ -162,6 +184,8 @@ const images: BoardImage[] = board.images;
 const cards: Card[] = board.cards;
 /** Фигуры из ящика: лежат над карточками и под линиями мела. */
 const shapes: Shape[] = board.shapes;
+/** Рамки листов тетради. Видны, только пока открыта тетрадь, и в PDF не рисуются. */
+const pages: Page[] = board.pages;
 /** Какую фигуру рисуем из ящика и фигура, которую тянем прямо сейчас. */
 let shapeKind: ShapeKind = 'rect';
 let draft: Shape | null = null;
@@ -178,12 +202,14 @@ let tool: Tool = 'pen';
 
 /** Выбранная указкой картинка или карточка. */
 let selected: Movable | null = null;
+/** Открыта ли тетрадь: только тогда на доске видны рамки листов. */
+let notebookOpen = false;
 /** Рамка выделения, которую тянем сейчас, и всё, что попало в выделенный участок. */
 let marquee: { start: Point; end: Point } | null = null;
 let picked: { strokes: Stroke[]; images: BoardImage[]; cards: Card[]; shapes: Shape[] } | null = null;
 /**
  * След лазерной указки: точки доски со временем появления.
- * Он ничего не рисует на доске и не сохраняется — только показывает, куда смотреть.
+ * Он ничего не рисует на доске и не сохраняется - только показывает, куда смотреть.
  */
 /** Точка следа: где, когда появилась и начинает ли новое движение. */
 type LaserPoint = { x: number; y: number; t: number; start?: boolean };
@@ -232,7 +258,7 @@ function drawStroke(s: Stroke): void {
 /* ---------- цвета темы ---------- */
 
 /**
- * Цвет линии хранится кодом мела (#25231f — графит и т. д.),
+ * Цвет линии хранится кодом мела (#25231f - графит и т. д.),
  * а рисуется цветом текущей темы: в тёмной теме графит становится белым мелом.
  */
 const CHALK_VARS: Record<string, string> = {
@@ -260,7 +286,7 @@ function readTheme(): void {
   }
 }
 
-/** Уголок для изменения размера — правый нижний угол картинки или карточки. */
+/** Уголок для изменения размера - правый нижний угол картинки или карточки. */
 function handleRect(i: Movable): Rect {
   const size = HANDLE / camera.zoom;
   return { x: i.x + i.w - size / 2, y: i.y + i.h - size / 2, w: size, h: size };
@@ -293,7 +319,7 @@ type CardLayout = {
 };
 
 /**
- * Раскладывает текст карточки. Строки с табуляцией — это строки таблицы из Word:
+ * Раскладывает текст карточки. Строки с табуляцией - это строки таблицы из Word:
  * подряд идущие такие строки рисуем одной таблицей с сеткой.
  */
 function layoutCard(c: Card): CardLayout {
@@ -321,7 +347,7 @@ function layoutCard(c: Card): CardLayout {
   return layout;
 }
 
-/** Таблица: ширина столбцов по самому длинному тексту, а если не влезает — сжимаем и переносим. */
+/** Таблица: ширина столбцов по самому длинному тексту, а если не влезает - сжимаем и переносим. */
 function layoutTable(table: string[][], left: number, top: number, width: number, layout: CardLayout): number {
   ctx.font = `16px ${FONT}`;
   const cols = Math.max(...table.map((r) => r.length));
@@ -356,6 +382,7 @@ function layoutTable(table: string[][], left: number, top: number, width: number
 
 /** Место и размер предмета для истории; у карточки вместе с масштабом. */
 function boxSnapshot(m: Movable): Box {
+  if (isPage(m)) return { ...rectOf(m), f: m.f, n: m.n };
   return isCard(m) ? { ...rectOf(m), s: m.s ?? 1 } : rectOf(m);
 }
 
@@ -435,7 +462,7 @@ function overlaps(a: Rect, b: Rect): boolean {
   return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 }
 
-/** Всё, что задевает рамка: линию — любой её точкой, предмет — любым краем. */
+/** Всё, что задевает рамка: линию - любой её точкой, предмет - любым краем. */
 function pickIn(r: Rect): NonNullable<typeof picked> {
   const touched = <T extends Movable>(list: T[]) => list.filter((m) => overlaps(r, boxOf(m)));
   return {
@@ -572,8 +599,9 @@ function draw(): void {
   ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
   ctx.setTransform(dpr * camera.zoom, 0, 0, dpr * camera.zoom, dpr * camera.x, dpr * camera.y);
   drawItems(draft);
+  if (notebookOpen) drawPages();
 
-  if (selected) drawSelection(selected);
+  if (selected && !isPage(selected)) drawSelection(selected);
   drawPicked();
   if (tool === 'eraser' && eraserRing) drawEraserRing(eraserRing);
   drawLaser();
@@ -687,7 +715,7 @@ function zoomAt(factor: number, at: Point): void {
   draw();
 }
 
-/** Масштаб от центра экрана — для кнопок на полке. */
+/** Масштаб от центра экрана - для кнопок на полке. */
 function zoomCenter(factor: number): void {
   zoomAt(factor, { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 });
 }
@@ -698,9 +726,9 @@ function resetView(): void {
   draw();
 }
 
-/** Курсор подсказывает, что сейчас произойдёт; at — точка доски под мышью (для указки). */
+/** Курсор подсказывает, что сейчас произойдёт; at - точка доски под мышью (для указки). */
 /**
- * Курсор лазера — светящаяся точка цвета следа, а не крестик: сразу видно, что это указка.
+ * Курсор лазера - светящаяся точка цвета следа, а не крестик: сразу видно, что это указка.
  * Цвет берём из темы, поэтому собираем картинку на ходу.
  */
 function laserCursor(): string {
@@ -715,7 +743,7 @@ function updateCursor(at?: Point): void {
   else if (tool === 'laser') canvas.style.cursor = laserCursor();
   else if (tool === 'pen' || tool === 'shape' || tool === 'select') canvas.style.cursor = 'crosshair';
   else if (dragging?.mode === 'resize' || (at && selected && contains(handleRect(selected), at))) canvas.style.cursor = 'nwse-resize';
-  // Указка — лапка: схватить можно и предмет, и саму доску.
+  // Указка - лапка: схватить можно и предмет, и саму доску.
   else if (dragging) canvas.style.cursor = 'grabbing';
   else canvas.style.cursor = 'grab';
 }
@@ -731,6 +759,10 @@ function removeFrom<T>(list: T[], item: T): void {
 function apply(change: Change, reverse = false): void {
   if (change.kind === 'move') {
     Object.assign(change.image, reverse ? change.from : change.to);
+    return;
+  }
+  if (change.kind === 'moves') {
+    for (const m of change.moves) Object.assign(m.image, reverse ? m.from : m.to);
     return;
   }
   if (change.kind === 'erase') {
@@ -763,10 +795,15 @@ function apply(change: Change, reverse = false): void {
     else removeFrom(cards, c);
     if (!add && selected === c) selected = null;
   }
+  for (const pg of change.pages ?? []) {
+    if (add) pages.push(pg);
+    else removeFrom(pages, pg);
+    if (!add && selected === pg) selected = null;
+  }
 }
 
 function listOf(m: Movable): ListName {
-  return isShape(m) ? 'shapes' : isCard(m) ? 'cards' : 'images';
+  return isPage(m) ? 'pages' : isShape(m) ? 'shapes' : isCard(m) ? 'cards' : 'images';
 }
 
 /** То же действие в виде изменений для сервера: другие вкладки найдут всё по id. */
@@ -774,6 +811,9 @@ function opsOf(change: Change, reverse = false): Op[] {
   if (change.kind === 'move') {
     const m = change.image;
     return [{ type: 'move', list: listOf(m), id: m.id, rect: reverse ? change.from : change.to }];
+  }
+  if (change.kind === 'moves') {
+    return change.moves.map((m) => ({ type: 'move', list: listOf(m.image), id: m.image.id, rect: reverse ? m.from : m.to }));
   }
   if (change.kind === 'erase') {
     const gone = reverse ? change.added : change.removed;
@@ -911,7 +951,7 @@ function eraseTo(p: Point): void {
 
 /* ---------- картинки ---------- */
 
-/** Верхняя фигура, карточка или картинка под точкой доски — в том порядке, как они лежат. */
+/** Верхняя фигура, карточка или картинка под точкой доски - в том порядке, как они лежат. */
 function imageAt(p: Point): Movable | null {
   for (let i = shapes.length - 1; i >= 0; i--) {
     // У тонкой линии рамка нулевой высоты, поэтому даём запас в 8 пикселей экрана.
@@ -926,6 +966,7 @@ function imageAt(p: Point): Movable | null {
 
 const isCard = (m: Movable): m is Card => 'title' in m;
 const isShape = (m: Movable): m is Shape => 'kind' in m;
+const isPage = (m: Movable): m is Page => 'n' in m && 'f' in m;
 
 /**
  * Кладёт картинку на доску центром в точку экрана.
@@ -959,7 +1000,10 @@ function deleteSelected(): void {
   if (!selected) return;
   const item = selected;
   selected = null;
-  if (isShape(item)) {
+  if (isPage(item)) {
+    removeFrom(pages, item);
+    record({ kind: 'remove', strokes: [], pages: [item] });
+  } else if (isShape(item)) {
     removeFrom(shapes, item);
     record({ kind: 'remove', strokes: [], shapes: [item] });
   } else if (isCard(item)) {
@@ -989,7 +1033,7 @@ function itemBoxes(): Rect[] {
 
 /**
  * Рисует доску в печатных цветах светлой темы: белый мел становится графитом,
- * карточки — светлыми листами. После этого возвращаем цвета текущей темы.
+ * карточки - светлыми листами. После этого возвращаем цвета текущей темы.
  */
 function paintForPrint(target: CanvasRenderingContext2D): void {
   paperColor = '#ffffff';
@@ -1019,37 +1063,278 @@ async function imagesReady(): Promise<void> {
   }
 }
 
+/* ---------- листы тетради на доске ---------- */
+
+/** Самая маленькая рамка листа, в пикселях экрана. */
+const MIN_PAGE = 40;
+/** Размер номера листа на рамке, в пикселях экрана. */
+const BADGE = 22;
+
+
+/** Номер листа по порядку: 1, 2, 3… - даже если внутренние номера с пропусками. */
+function pageNumber(page: Page): number {
+  return ordered(pages).indexOf(page) + 1;
+}
+
+/** Номер в углу рамки: за него, как и за край, рамку можно схватить. */
+function badgeRect(page: Page): Rect {
+  const size = BADGE / camera.zoom;
+  return { x: page.x - size / 2, y: page.y - size / 2, w: size, h: size };
+}
+
+/** Рамки листов поверх доски: пунктир, номер, формат и уголок для размера. */
+function drawPages(): void {
+  const z = camera.zoom;
+  for (const page of ordered(pages)) {
+    const active = page === selected;
+    ctx.strokeStyle = accentColor;
+    ctx.lineWidth = (active ? 2.5 : 1.5) / z;
+    ctx.setLineDash(active ? [] : [8 / z, 6 / z]);
+    ctx.strokeRect(page.x, page.y, page.w, page.h);
+    ctx.setLineDash([]);
+
+    const b = badgeRect(page);
+    ctx.fillStyle = accentColor;
+    ctx.beginPath();
+    ctx.roundRect(b.x, b.y, b.w, b.h, 5 / z);
+    ctx.fill();
+    ctx.fillStyle = paperColor;
+    ctx.font = `600 ${13 / z}px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(pageNumber(page)), b.x + b.w / 2, b.y + b.h / 2 + 0.5 / z);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = accentColor;
+    ctx.font = `${12 / z}px ${FONT}`;
+    ctx.fillText(FORMATS[page.f].label, b.x + b.w + 6 / z, b.y + b.h / 2);
+
+    const h = handleRect(page);
+    ctx.fillRect(h.x, h.y, h.w, h.h);
+  }
+}
+
+/** За что схватили рамку листа: уголок - размер, номер или край - перенос. */
+function pageGrip(p: Point): { page: Page; mode: 'move' | 'resize' } | null {
+  const near = 8 / camera.zoom;
+  const list = ordered(pages).reverse();
+  for (const page of list) if (contains(handleRect(page), p)) return { page, mode: 'resize' };
+  for (const page of list) {
+    if (contains(badgeRect(page), p)) return { page, mode: 'move' };
+    const outer = { x: page.x - near, y: page.y - near, w: page.w + near * 2, h: page.h + near * 2 };
+    const inner = { x: page.x + near, y: page.y + near, w: page.w - near * 2, h: page.h - near * 2 };
+    if (contains(outer, p) && !contains(inner, p)) return { page, mode: 'move' };
+  }
+  return null;
+}
+
+/** Номер для нового листа: после всех. */
+function nextNumber(): number {
+  return pages.reduce((max, pg) => Math.max(max, pg.n), 0) + 1;
+}
+
+function addPages(rects: Rect[], f: PageFormat): void {
+  if (!rects.length) return;
+  let n = nextNumber();
+  const added = rects.map((r) => ({ id: newId(), ...r, f, n: n++ }));
+  pages.push(...added);
+  record({ kind: 'add', strokes: [], pages: added });
+  draw();
+  save();
+}
+
+/** Лист на то, что сейчас видно: в свободной части экрана, мимо панели тетради и полки. */
+function addPageFromView(f: PageFormat): void {
+  const panelWidth = notebookPanel.offsetWidth + 24;
+  const top = toBoard({ x: 24, y: 64 });
+  const bottom = toBoard({ x: canvas.clientWidth - panelWidth, y: canvas.clientHeight - 110 });
+  const area = { x: top.x, y: top.y, w: bottom.x - top.x, h: bottom.y - top.y };
+  const ratio = ratioOf(f);
+  if (ratio === null) return addPages([area], f);
+  // Форматный лист вписываем в видимую часть по центру.
+  const w = Math.min(area.w, area.h / ratio);
+  const h = w * ratio;
+  addPages([{ x: area.x + (area.w - w) / 2, y: area.y + (area.h - h) / 2, w, h }], f);
+}
+
+/** Раскладывает всё, что есть на доске, по свободным рамкам. */
+function autoPages(): void {
+  const rects = autoLayout(itemBoxes());
+  if (!rects.length) return showNotice('Доска пустая: раскладывать пока нечего.');
+  addPages(rects, 'free');
+  showNotice(`Добавлено листов: ${rects.length}. Поправь рамки, если нужно, и скачай PDF.`);
+}
+
+/** Меняет формат листа: ширина остаётся, высота подстраивается под пропорции. */
+function setPageFormat(page: Page, f: PageFormat): void {
+  const from = boxSnapshot(page);
+  const ratio = ratioOf(f);
+  page.f = f;
+  if (ratio !== null) page.h = page.w * ratio;
+  record({ kind: 'move', image: page, from, to: boxSnapshot(page) });
+  draw();
+  save();
+}
+
+/** Меняет лист местами с соседним: dir = -1 выше, 1 ниже. */
+function shiftPage(page: Page, dir: number): void {
+  const list = ordered(pages);
+  const other = list[list.indexOf(page) + dir];
+  if (!other) return;
+  const a = boxSnapshot(page);
+  const b = boxSnapshot(other);
+  [page.n, other.n] = [other.n, page.n];
+  record({
+    kind: 'moves',
+    moves: [
+      { image: page, from: a, to: boxSnapshot(page) },
+      { image: other, from: b, to: boxSnapshot(other) },
+    ],
+  });
+  draw();
+  save();
+}
+
+function removePage(page: Page): void {
+  removeFrom(pages, page);
+  if (selected === page) selected = null;
+  record({ kind: 'remove', strokes: [], pages: [page] });
+  draw();
+  save();
+}
+
+/** Показывает лист целиком в свободной части экрана. */
+function showPage(page: Page): void {
+  const width = canvas.clientWidth - notebookPanel.offsetWidth - 48;
+  const height = canvas.clientHeight - 64 - 110;
+  camera.zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.min(width / page.w, height / page.h)));
+  camera.x = 24 + (width - page.w * camera.zoom) / 2 - page.x * camera.zoom;
+  camera.y = 64 + (height - page.h * camera.zoom) / 2 - page.y * camera.zoom;
+  selected = page;
+  draw();
+}
+
+/* ---------- панель тетради ---------- */
+
+const notebookButton = document.querySelector<HTMLButtonElement>('#notebook')!;
+const notebookPanel = document.querySelector<HTMLElement>('#notebook-panel')!;
+const pageList = document.querySelector<HTMLOListElement>('#page-list')!;
+const pagesEmpty = document.querySelector<HTMLParagraphElement>('#pages-empty')!;
+const newFormat = document.querySelector<HTMLSelectElement>('#new-format')!;
+const qualitySelect = document.querySelector<HTMLSelectElement>('#quality')!;
+const estimate = document.querySelector<HTMLSpanElement>('#estimate')!;
+const downloadButton = document.querySelector<HTMLButtonElement>('#download-pdf')!;
+
+function formatOptions(select: HTMLSelectElement, current: PageFormat): void {
+  select.replaceChildren(
+    ...(Object.keys(FORMATS) as PageFormat[]).map((f) => new Option(FORMATS[f].label, f, false, f === current)),
+  );
+}
+formatOptions(newFormat, 'a4');
+qualitySelect.replaceChildren(
+  ...(Object.keys(QUALITIES) as Quality[]).map((q) => new Option(QUALITIES[q].label, q, false, q === 'normal')),
+);
+
+/** Есть ли в рамке картинка: такой лист весит больше и сжимается как фото. */
+function hasPicture(page: Page): boolean {
+  return images.some((i) => overlaps(i, page));
+}
+
+function updateEstimate(): void {
+  const kb = estimateKb(pages, qualitySelect.value as Quality, hasPicture);
+  estimate.textContent = pages.length ? `примерно ${formatSize(kb)}` : '';
+}
+
+function iconButton(label: string, text: string, onClick: () => void, off = false): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'page-action';
+  b.textContent = text;
+  b.setAttribute('aria-label', label);
+  b.dataset.tip = label;
+  b.disabled = off;
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+/** Список листов в панели: номер, формат, порядок, удаление. */
+function renderNotebook(): void {
+  if (!notebookOpen) return;
+  const list = ordered(pages);
+  pagesEmpty.hidden = list.length > 0;
+  downloadButton.disabled = !list.length;
+  pageList.replaceChildren(
+    ...list.map((page, i) => {
+      const item = document.createElement('li');
+      item.className = 'page-row';
+      item.classList.toggle('is-active', page === selected);
+
+      const show = document.createElement('button');
+      show.type = 'button';
+      show.className = 'page-number';
+      show.textContent = String(i + 1);
+      show.setAttribute('aria-label', `Показать лист ${i + 1}`);
+      show.dataset.tip = 'Показать лист на доске';
+      show.addEventListener('click', () => showPage(page));
+
+      const format = document.createElement('select');
+      format.className = 'page-format';
+      format.setAttribute('aria-label', `Формат листа ${i + 1}`);
+      formatOptions(format, page.f);
+      format.addEventListener('change', () => setPageFormat(page, format.value as PageFormat));
+
+      item.append(
+        show,
+        format,
+        iconButton('Поднять лист выше', '↑', () => shiftPage(page, -1), i === 0),
+        iconButton('Опустить лист ниже', '↓', () => shiftPage(page, 1), i === list.length - 1),
+        iconButton('Убрать лист', '×', () => removePage(page)),
+      );
+      return item;
+    }),
+  );
+  updateEstimate();
+}
+
+function toggleNotebook(open = !notebookOpen): void {
+  notebookOpen = open;
+  notebookPanel.hidden = !open;
+  notebookButton.setAttribute('aria-expanded', String(open));
+  if (!open && selected && isPage(selected)) selected = null;
+  renderNotebook();
+  draw();
+}
+
+document.querySelector('#close-notebook')!.addEventListener('click', () => toggleNotebook(false));
+document.querySelector('#add-page')!.addEventListener('click', () => addPageFromView(newFormat.value as PageFormat));
+document.querySelector('#auto-pages')!.addEventListener('click', autoPages);
+qualitySelect.addEventListener('change', updateEstimate);
+downloadButton.addEventListener('click', () => void downloadPdf());
+
 let downloading = false;
 
 async function downloadPdf(): Promise<void> {
-  if (downloading) return;
-  const boxes = itemBoxes();
-  if (!boxes.length) {
-    showNotice('Доска пустая: в тетрадь пока нечего положить.');
-    return;
-  }
+  if (downloading || !pages.length) return;
   downloading = true;
-  showNotice('Собираю тетрадь…');
+  downloadButton.textContent = 'Собираю…';
   try {
     await imagesReady();
     const title = document.querySelector('#topic-title')?.textContent?.trim() || 'Доска';
-    const studentName = !isGuest && studentId ? getStudent(studentId)?.name : undefined;
-    const now = new Date();
-    const date = now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
-    const day = now.toISOString().slice(0, 10);
-    const pages = await downloadNotebook({
-      boxes,
+    const day = new Date().toISOString().slice(0, 10);
+    await downloadNotebook({
+      pages,
       paint: paintForPrint,
+      hasPicture,
+      quality: qualitySelect.value as Quality,
       title,
-      subtitle: studentName ? `${studentName} · ${date}` : date,
       // В имени файла не должно быть знаков, которые запрещены в Windows.
-      fileName: `${title.replace(/[\\/:*?"<>|]/g, '-')} — ${day}.pdf`,
+      fileName: `${title.replace(/[\\/:*?"<>|]/g, '-')} - ${day}.pdf`,
     });
-    showNotice(`Тетрадь скачана: ${pages} ${pages === 1 ? 'лист' : pages < 5 ? 'листа' : 'листов'}.`);
+    showNotice(`Тетрадь скачана: ${pages.length} ${pages.length === 1 ? 'лист' : pages.length < 5 ? 'листа' : 'листов'}.`);
   } catch {
-    showNotice('Не получилось собрать PDF. Попробуй ещё раз.');
+    showNotice('Не получилось собрать PDF. Попробуй ещё раз или выбери качество полегче.');
   } finally {
     downloading = false;
+    downloadButton.textContent = 'Скачать PDF';
     draw();
   }
 }
@@ -1126,7 +1411,7 @@ function chooseShape(button: HTMLButtonElement): void {
   shapeKind = button.dataset.shape as ShapeKind;
   tool = 'shape';
   selected = null;
-  // На полке приподнимается ящик; цвет фигуры — последний выбранный мел.
+  // На полке приподнимается ящик; цвет фигуры - последний выбранный мел.
   for (const b of palette.querySelectorAll('button')) b.setAttribute('aria-pressed', String(b === boxButton));
   for (const b of shapesBox.querySelectorAll('button')) b.setAttribute('aria-pressed', String(b === button));
   draw();
@@ -1145,10 +1430,10 @@ shapesBox.addEventListener('click', (e) => {
 canvas.addEventListener('pointerdown', (e) => {
   const p = pointOf(e);
   toggleBox(false);
-  // Правая кнопка мыши — лазер, каким бы инструментом ни рисовали: зажал и показываешь.
+  // Правая кнопка мыши - лазер, каким бы инструментом ни рисовали: зажал и показываешь.
   if (e.button === 2) {
     e.preventDefault();
-    // На полке на это время горит лазер, а отпустил кнопку — вернётся то, что было.
+    // На полке на это время горит лазер, а отпустил кнопку - вернётся то, что было.
     heldTool = palette.querySelector<HTMLButtonElement>('[aria-pressed="true"]');
     for (const b of palette.querySelectorAll<HTMLButtonElement>('[aria-pressed]')) {
       b.setAttribute('aria-pressed', String(b.dataset.tool === 'laser'));
@@ -1163,12 +1448,29 @@ canvas.addEventListener('pointerdown', (e) => {
     }
     return;
   }
-  // Средняя кнопка мыши или зажатый пробел — двигаем доску.
+  // Средняя кнопка мыши или зажатый пробел - двигаем доску.
   if (e.button === 1 || spaceHeld) {
     e.preventDefault();
     panning = screenPoint(e);
     updateCursor();
     return;
+  }
+  // Пока открыта тетрадь, рамку листа можно схватить любым инструментом: за край, номер или уголок.
+  if (notebookOpen && e.button === 0) {
+    const grip = pageGrip(p);
+    if (grip) {
+      selected = grip.page;
+      dragging = { mode: grip.mode, start: p, from: boxSnapshot(grip.page) };
+      try {
+        canvas.setPointerCapture(e.pointerId);
+      } catch {
+        // Указатель уже отпущен.
+      }
+      canvas.style.cursor = grip.mode === 'resize' ? 'nwse-resize' : 'grabbing';
+      draw();
+      return;
+    }
+    if (selected && isPage(selected)) selected = null;
   }
   if (tool === 'pointer') {
     if (selected && contains(handleRect(selected), p)) {
@@ -1183,7 +1485,7 @@ canvas.addEventListener('pointerdown', (e) => {
       // Тянем картинку, даже если мышь выскочила за край окна.
       canvas.setPointerCapture(e.pointerId);
     } catch {
-      // Указатель уже отпущен — тогда и захватывать нечего.
+      // Указатель уже отпущен - тогда и захватывать нечего.
     }
     updateCursor(p);
     draw();
@@ -1234,8 +1536,21 @@ canvas.addEventListener('pointermove', (e) => {
     if (dragging.mode === 'move') {
       selected.x = from.x + dx;
       selected.y = from.y + dy;
+    } else if (isPage(selected)) {
+      const ratio = ratioOf(selected.f);
+      const min = MIN_PAGE / camera.zoom;
+      if (ratio === null) {
+        // Свободная рамка: ширина и высота меняются отдельно.
+        selected.w = Math.max(min, from.w + dx);
+        selected.h = Math.max(min, from.h + dy);
+      } else {
+        // У формата пропорции листа держатся сами.
+        const w = Math.max(min, from.w + Math.max(dx, dy / ratio));
+        selected.w = w;
+        selected.h = w * ratio;
+      }
     } else if (isShape(selected)) {
-      // У фигуры уголок — это её второй конец: тянем его куда угодно.
+      // У фигуры уголок - это её второй конец: тянем его куда угодно.
       selected.w = from.w + dx;
       selected.h = from.h + dy;
     } else if (isCard(selected)) {
@@ -1262,6 +1577,15 @@ canvas.addEventListener('pointermove', (e) => {
       selected.h = (w * from.h) / from.w;
     }
     return draw();
+  }
+  // Над рамкой листа курсор подсказывает, что её можно двигать или растягивать.
+  if (notebookOpen && !current && !erased && !draft && !marquee) {
+    const grip = pageGrip(pointOf(e));
+    if (grip) {
+      canvas.style.cursor = grip.mode === 'resize' ? 'nwse-resize' : 'move';
+      return;
+    }
+    updateCursor();
   }
   if (tool === 'eraser') {
     eraserRing = pointOf(e);
@@ -1292,7 +1616,7 @@ function finish(): void {
     record({ kind: 'erase', removed: erased.removed, added: erased.added, wipes });
   }
   if (draft) {
-    // Просто кликнули, не растягивая, — ставим фигуру обычного размера.
+    // Просто кликнули, не растягивая, - ставим фигуру обычного размера.
     if (Math.abs(draft.w) < 4 && Math.abs(draft.h) < 4) Object.assign(draft, defaultSize(draft.kind));
     shapes.push(draft);
     record({ kind: 'add', strokes: [], shapes: [draft] });
@@ -1302,7 +1626,7 @@ function finish(): void {
   if (dragging && selected) {
     const to = boxSnapshot(selected);
     const from = dragging.from;
-    if (to.x !== from.x || to.y !== from.y || to.w !== from.w || to.h !== from.h || to.s !== from.s) {
+    if (to.x !== from.x || to.y !== from.y || to.w !== from.w || to.h !== from.h || to.s !== from.s || to.f !== from.f) {
       record({ kind: 'move', image: selected, from, to });
       changed = true;
     }
@@ -1312,7 +1636,7 @@ function finish(): void {
     marquee = null;
     const n = pickedCount();
     if (!n) picked = null;
-    showNotice(n ? `Выделено: ${n}. Delete — удалить, Esc — снять выделение.` : '');
+    showNotice(n ? `Выделено: ${n}. Delete - удалить, Esc - снять выделение.` : '');
     draw();
   }
   current = null;
@@ -1339,7 +1663,7 @@ canvas.addEventListener('pointerup', finish);
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 canvas.addEventListener('pointercancel', finish);
 
-/** Колесо или два пальца на тачпаде двигают доску; с Ctrl/⌘ (или щипок) — масштаб. */
+/** Колесо или два пальца на тачпаде двигают доску; с Ctrl/⌘ (или щипок) - масштаб. */
 canvas.addEventListener(
   'wheel',
   (e) => {
@@ -1389,7 +1713,7 @@ palette.addEventListener('click', (e) => {
   // Кнопка «картинка» не инструмент: она открывает выбор файла.
   if (button.id === 'add-image') return fileInput.click();
   if (button.id === 'add-doc') return docInput.click();
-  if (button.id === 'notebook') return void downloadPdf();
+  if (button.id === 'notebook') return toggleNotebook();
   // Ящик открывается своим обработчиком и сам не меняет инструмент.
   if (button.id === 'shapes-box') return;
   select(button);
@@ -1407,7 +1731,7 @@ window.addEventListener('keydown', (e) => {
   const mod = e.metaKey || e.ctrlKey;
   const key = e.key.toLowerCase();
 
-  // Ctrl/⌘ + Z — отменить, с Shift — вернуть; Ctrl + Y — тоже вернуть.
+  // Ctrl/⌘ + Z - отменить, с Shift - вернуть; Ctrl + Y - тоже вернуть.
   if (mod && (key === 'z' || key === 'я')) {
     e.preventDefault();
     if (e.shiftKey) redo();
@@ -1419,7 +1743,7 @@ window.addEventListener('keydown', (e) => {
     redo();
     return;
   }
-  // Ctrl/⌘ + 0 — вернуть доску на место и масштаб 100%.
+  // Ctrl/⌘ + 0 - вернуть доску на место и масштаб 100%.
   if (mod && e.key === '0') {
     e.preventDefault();
     resetView();
@@ -1453,6 +1777,10 @@ window.addEventListener('keydown', (e) => {
     toggleBox(false);
     return;
   }
+  if (e.key === 'Escape' && notebookOpen && !selected) {
+    toggleNotebook(false);
+    return;
+  }
   if (e.key === 'Escape' && selected) {
     selected = null;
     draw();
@@ -1460,7 +1788,7 @@ window.addEventListener('keydown', (e) => {
   }
 
   if (key === 'l' || key === 'д') select(palette.querySelector<HTMLButtonElement>('[data-tool="laser"]')!);
-  // 1, 2, 3 — мелки по порядку; E — губка; V — указка; L — лазер; S — выделение.
+  // 1, 2, 3 - мелки по порядку; E - губка; V - указка; L - лазер; S - выделение.
   const chalk = palette.querySelectorAll<HTMLButtonElement>('[data-color]')[Number(e.key) - 1];
   if (chalk) select(chalk);
   if (key === 'e' || key === 'у') select(palette.querySelector<HTMLButtonElement>('[data-tool="eraser"]')!);
@@ -1475,7 +1803,7 @@ window.addEventListener('keyup', (e) => {
 });
 
 window.addEventListener('resize', resize);
-// Сменили тему кнопкой или в системе — перекрашиваем доску сразу, без перезагрузки.
+// Сменили тему кнопкой или в системе - перекрашиваем доску сразу, без перезагрузки.
 window.addEventListener('themechange', () => {
   readTheme();
   draw();
@@ -1484,7 +1812,7 @@ window.addEventListener('themechange', () => {
 /* ---------- связь с сервером ---------- */
 
 /** Те же массивы, что рисует доска: изменения с сервера меняют их на месте. */
-const live = { strokes, images, cards, shapes } as unknown as BoardData;
+const live = { strokes, images, cards, shapes, pages } as unknown as BoardData;
 
 /** Значок связи вверху: виден, только когда у сайта есть сервер. */
 const linkStatus = document.querySelector<HTMLSpanElement>('#link-status')!;
@@ -1510,7 +1838,7 @@ const link = connect(serverRoom, {
       // Что уже есть во вкладке, обновляем на месте: на эти предметы ссылается история отмен,
       // и после переподключения отменять можно то, что сделано до обрыва связи.
       const mine = new Map(live[list].map((i) => [i.id, i]));
-      const next = board[list].map((item) => {
+      const next = (board[list] ?? []).map((item) => {
         const own = mine.get(item.id);
         if (!own) return item;
         Object.assign(own, item);
@@ -1519,7 +1847,7 @@ const link = connect(serverRoom, {
       });
       live[list].splice(0, live[list].length, ...next);
     }
-    if (selected && ![...images, ...cards, ...shapes].includes(selected)) selected = null;
+    if (selected && ![...images, ...cards, ...shapes, ...pages].includes(selected)) selected = null;
     draw();
     save();
   },
@@ -1535,7 +1863,7 @@ const link = connect(serverRoom, {
       };
       if (!pickedCount()) clearPicked();
     }
-    if (selected && ![...images, ...cards, ...shapes].includes(selected)) selected = null;
+    if (selected && ![...images, ...cards, ...shapes, ...pages].includes(selected)) selected = null;
     draw();
     save();
   },

@@ -26,7 +26,7 @@ export function currentTheme(): Theme {
   return saved() ?? (systemDark.matches ? 'dark' : 'light');
 }
 
-/** Ставит иконку: в светлой теме луна (переключить на тёмную), в тёмной — солнце. */
+/** Ставит иконку: в светлой теме луна (переключить на тёмную), в тёмной - солнце. */
 function updateButtons(): void {
   const dark = currentTheme() === 'dark';
   for (const button of document.querySelectorAll<HTMLButtonElement>('.theme-toggle')) {

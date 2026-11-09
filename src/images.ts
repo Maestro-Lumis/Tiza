@@ -1,6 +1,6 @@
 import type { Wipe } from './ops';
 
-/** Картинка на доске: скриншот или файл. Координаты и размер — в координатах доски. */
+/** Картинка на доске: скриншот или файл. Координаты и размер - в координатах доски. */
 export type BoardImage = { id: string; src: string; x: number; y: number; w: number; h: number; wipes?: Wipe[] };
 export type Rect = { x: number; y: number; w: number; h: number };
 
@@ -39,7 +39,7 @@ const loaded = new Map<string, HTMLImageElement>();
 
 /**
  * Готовая к отрисовке картинка. Пока она грузится, возвращает null,
- * а когда загрузится — вызывает onReady, чтобы перерисовать доску.
+ * а когда загрузится - вызывает onReady, чтобы перерисовать доску.
  */
 export function imageElement(item: BoardImage, onReady: () => void): HTMLImageElement | null {
   let img = loaded.get(item.id);
@@ -86,7 +86,7 @@ export function backgroundOf(id: string, img: HTMLImageElement): string {
     g[3]++;
     groups.set(key, g);
   }
-  // Самая большая группа, а цвет — среднее её точек, чтобы заплатка совпала с фоном.
+  // Самая большая группа, а цвет - среднее её точек, чтобы заплатка совпала с фоном.
   const top = [...groups.values()].sort((a, b) => b[3] - a[3])[0];
   const color = top ? `rgb(${top.slice(0, 3).map((v) => Math.round(v / top[3])).join(',')})` : '#fff';
   backgrounds.set(id, color);

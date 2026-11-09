@@ -23,7 +23,7 @@ const EDGE_SPACES = /^[ \u00a0]+|[ \u00a0]+$/g;
  * верхнего нумерованного списка, а вложенные пункты остаются внутри своего задания.
  */
 export function splitTasks(raw: string): Task[] {
-  // Обрезаем только пробелы: табуляции по краям — это пустые ячейки таблицы.
+  // Обрезаем только пробелы: табуляции по краям - это пустые ячейки таблицы.
   const lines = raw.split('\n').map((l) => l.replace(EDGE_SPACES, '')).filter(Boolean);
   const byMarker = lines.some((l) => MARKER.test(l));
   const tasks: Task[] = [];
@@ -100,7 +100,7 @@ function listLines(list: Element, depth: number, lines: string[]): void {
 /**
  * Достаёт текст из файла Word (.docx). Библиотеку mammoth грузим только когда она нужна,
  * чтобы доска открывалась быстро.
- * Каждый абзац — своя строка. Строка таблицы — тоже одна строка, ячейки в ней разделены
+ * Каждый абзац - своя строка. Строка таблицы - тоже одна строка, ячейки в ней разделены
  * табуляцией: по ней карточка поймёт, что это таблица, и нарисует её сеткой.
  * Пункты списков получают номера «1.», «а)», как в документе.
  */
@@ -113,7 +113,7 @@ export async function readDocx(file: File): Promise<string> {
   for (const el of body.children) {
     if (el.tagName === 'TABLE') {
       for (const row of el.querySelectorAll('tr')) {
-        // В ячейке может быть несколько абзацев — склеиваем их через пробел.
+        // В ячейке может быть несколько абзацев - склеиваем их через пробел.
         const cells = [...row.children].map((cell) => [...cell.querySelectorAll('p')].map(text).join(' ') || text(cell));
         lines.push(cells.join('\t'));
       }

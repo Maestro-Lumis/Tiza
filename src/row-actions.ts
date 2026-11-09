@@ -18,7 +18,7 @@ function iconButton(svg: string, label: string, onClick: () => void): HTMLButton
 }
 
 /**
- * Заменяет ссылку в строке полем ввода. Enter или клик мимо — сохранить, Esc — отменить.
+ * Заменяет ссылку в строке полем ввода. Enter или клик мимо - сохранить, Esc - отменить.
  * Пустое название не сохраняется.
  */
 function editInline(link: HTMLAnchorElement, save: (value: string) => void, done: () => void): void {
@@ -47,7 +47,7 @@ function editInline(link: HTMLAnchorElement, save: (value: string) => void, done
 
 /**
  * Добавляет в строку кнопки. После любого изменения вызывается refresh, чтобы перерисовать список.
- * deleteQuestion — текст подтверждения, например «Удалить Андрея вместе с темами и досками?».
+ * deleteQuestion - текст подтверждения, например «Удалить Андрея вместе с темами и досками?».
  */
 export function addRowActions(
   item: HTMLLIElement,
