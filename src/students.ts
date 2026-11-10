@@ -24,11 +24,30 @@ export function loadStudents(): Student[] {
   }
 }
 
+/** Когда список последний раз менялся в этом браузере: так понятно, чей список новее. */
+export const STAMP_KEY = 'tiza:students-at';
+
 function saveStudents(students: Student[]): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(students));
+    localStorage.setItem(STAMP_KEY, String(Date.now()));
   } catch {
     // Хранилище недоступно: изменения видны до перезагрузки страницы.
+  }
+  // account.ts отправит список на сервер.
+  window.dispatchEvent(new Event(STUDENTS_CHANGED));
+}
+
+/** Событие «список учеников изменился»: на него подписано сохранение на сервере. */
+export const STUDENTS_CHANGED = 'tiza:students-changed';
+
+/** Кладёт список с сервера в браузер как есть, не отправляя его обратно. */
+export function replaceStudents(students: Student[], at: number): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(students));
+    localStorage.setItem(STAMP_KEY, String(at));
+  } catch {
+    // Хранилище недоступно: список виден до перезагрузки страницы.
   }
 }
 

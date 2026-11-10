@@ -21,7 +21,7 @@ body {
   pointer-events: none;
 }
 
-/* Верх полки: здесь лежат мелки и губка. Немного заходит на дерево, чтобы они «лежали». */
+/* Верх полки: здесь лежат мелки и ластик. Немного заходит на дерево, чтобы они «лежали». */
 .shelf {
   display: flex;
   justify-content: center;
@@ -61,13 +61,45 @@ body {
   background: var(--chalk);
 }
 
-/* Губка: деревянная спинка и войлок снизу. */
+/* Ластик: двухцветный, как школьный, лежит наискось и оставляет светлый стёртый след. */
 .sponge {
-  width: 56px;
-  height: 24px;
-  margin-left: 12px;
-  border-radius: 4px;
-  background: linear-gradient(#b98a55 0 55%, #55524b 55% 100%);
+  width: 52px;
+  height: 30px;
+  background: none;
+}
+
+.sponge svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.sponge .rubber {
+  fill: #e07a7f;
+  stroke: rgba(0, 0, 0, 0.25);
+}
+
+.sponge .band {
+  fill: #4f78c4;
+}
+
+.sponge .shine {
+  stroke: rgba(255, 255, 255, 0.45);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+
+.sponge .trail {
+  stroke: var(--ink-2);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: 2 4;
+  opacity: 0.5;
+}
+
+/* Полка делится на группы: указки, мел с ластиком, что вставить, тетрадь. */
+.shelf .group-start {
+  margin-left: 24px;
 }
 
 /* Дерево полки: светлая верхняя грань и передняя грань с кнопками. */
@@ -183,7 +215,6 @@ body {
 .pointer {
   width: 40px;
   height: 36px;
-  margin-right: 12px;
   background: none;
 }
 
@@ -198,7 +229,8 @@ body {
 
 /* У лапки и лазера нет прямоугольного фона: тень рисуем по их форме. */
 .shelf .pointer[aria-pressed='true'],
-.shelf .laser[aria-pressed='true'] {
+.shelf .laser[aria-pressed='true'],
+.shelf .sponge[aria-pressed='true'] {
   box-shadow: none;
   filter: drop-shadow(0 9px 4px var(--shade));
 }
@@ -207,7 +239,6 @@ body {
 .picture {
   width: 36px;
   height: 28px;
-  margin-left: 12px;
   border-radius: 3px;
   background:
     linear-gradient(135deg, transparent 55%, var(--chalk-blue) 55%) 4px 4px / 28px 20px no-repeat,
@@ -241,7 +272,6 @@ body {
 .doc {
   width: 26px;
   height: 32px;
-  margin-left: 8px;
   border-radius: 2px;
   background:
     linear-gradient(var(--line) 0 0) 7px 8px / 14px 2px no-repeat,
@@ -255,7 +285,6 @@ body {
 .notebook {
   width: 26px;
   height: 32px;
-  margin-left: 8px;
   border-radius: 2px 4px 4px 2px;
   background:
     linear-gradient(var(--card) 0 0) right 0 top 3px / 3px calc(100% - 6px) no-repeat,
@@ -269,7 +298,6 @@ body {
 .lasso {
   width: 34px;
   height: 30px;
-  margin-left: 12px;
   background: none;
 }
 
@@ -301,7 +329,6 @@ body {
 .laser {
   width: 84px;
   height: 26px;
-  margin-left: 12px;
   background: none;
 }
 
@@ -349,7 +376,6 @@ body {
 .box {
   width: 44px;
   height: 26px;
-  margin-left: 12px;
   border-radius: 3px;
   background:
     linear-gradient(var(--wood-dark) 0 0) 50% 8px / 16px 3px no-repeat,
@@ -437,8 +463,25 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  padding: 2px 6px;
+  margin: -2px -6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
   font-size: 13px;
   color: var(--ink-2);
+  cursor: pointer;
+}
+
+.link-status:hover,
+.link-status[aria-expanded='true'] {
+  background: var(--line);
+}
+
+.link-status:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .link-status[hidden] {
@@ -477,6 +520,112 @@ body {
 
 .link-status[data-state='offline'] {
   --link-dot: #c0392b;
+}
+
+/* Окошко связи под значком: кто на доске, серверы с задержкой и выбор сервера. */
+.link-panel {
+  position: fixed;
+  top: 44px;
+  left: 16px;
+  width: 260px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: 0 10px 30px var(--shade);
+  font-size: 13px;
+  z-index: 3;
+}
+
+.link-panel[hidden],
+.server-choice[hidden] {
+  display: none;
+}
+
+.link-peer {
+  margin: 0 0 12px;
+  color: var(--ink);
+}
+
+.link-peer[data-here='true'] {
+  color: #3f9b5f;
+}
+
+.link-label {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.server-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.server {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.server::before {
+  content: '';
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-2);
+}
+
+.server[data-state='up']::before {
+  background: #3f9b5f;
+}
+
+.server[data-state='down']::before {
+  background: #c0392b;
+}
+
+.server-name {
+  flex: 1;
+  color: var(--ink);
+}
+
+.server-detail {
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.server-choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.server-option {
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.server-option[aria-checked='true'] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--card);
+}
+
+.server-option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 @keyframes link-blink {

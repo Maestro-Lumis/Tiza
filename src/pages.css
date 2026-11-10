@@ -380,3 +380,35 @@ li:hover .row-actions,
 .topics .status.is-static {
   cursor: default;
 }
+
+/* ---------- вход с другого браузера ---------- */
+
+.account {
+  margin-top: 48px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.account[hidden] {
+  display: none;
+}
+
+.account h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  color: var(--ink);
+}
+
+.account p {
+  margin: 0 0 12px;
+}
+
+.save-state {
+  font-size: 13px;
+}
+
+.save-state[data-state='offline'] {
+  color: var(--chalk-red);
+}

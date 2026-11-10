@@ -20,6 +20,10 @@ await db.execute(
   'CREATE TABLE IF NOT EXISTS roadmaps (id TEXT PRIMARY KEY, data TEXT NOT NULL, write_hash TEXT NOT NULL, updated_at INTEGER NOT NULL)',
 );
 
+await db.execute(
+  'CREATE TABLE IF NOT EXISTS workspaces (id TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at INTEGER NOT NULL)',
+);
+
 export const storeName = url.startsWith('file:') ? url.slice(5) : 'Turso';
 
 /** Доска из базы или null, если такой ещё нет. */
@@ -52,5 +56,21 @@ export async function saveRoadmap(id: string, data: string, writeHash: string): 
     sql: `INSERT INTO roadmaps (id, data, write_hash, updated_at) VALUES (?, ?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
     args: [id, data, writeHash, Date.now()],
+  });
+}
+
+/* ---------- список учеников учителя ---------- */
+// id - отпечаток ключа учителя: самого ключа в базе нет, по базе в чужой список не войти.
+
+export async function loadWorkspace(id: string): Promise<string | null> {
+  const rs = await db.execute({ sql: 'SELECT data FROM workspaces WHERE id = ?', args: [id] });
+  return rs.rows[0] ? String(rs.rows[0].data) : null;
+}
+
+export async function saveWorkspace(id: string, data: string): Promise<void> {
+  await db.execute({
+    sql: `INSERT INTO workspaces (id, data, updated_at) VALUES (?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
+    args: [id, data, Date.now()],
   });
 }

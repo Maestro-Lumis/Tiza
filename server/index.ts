@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { applyOp, type BoardData, type Laser, type Op } from '../src/ops.ts';
-import { loadBoard, loadRoadmap, saveBoard, saveRoadmap, storeName } from './store.ts';
+import { loadBoard, loadRoadmap, loadWorkspace, saveBoard, saveRoadmap, saveWorkspace, storeName } from './store.ts';
 
 const PORT = Number(process.env.PORT ?? 8787);
 /** Сколько ждать после изменения, прежде чем писать в базу: подряд идущие правки сохраняются разом. */
@@ -29,34 +29,57 @@ type Message =
   | Laser // в обе стороны: точка лазерной указки, не сохраняется
   | { type: 'ack' } // сервер → вкладка: изменение принято (по порядку)
   | { type: 'ping' } // вкладка → сервер: связь жива?
-  | { type: 'pong' }; // сервер → вкладка: жива
+  | { type: 'pong' } // сервер → вкладка: жива
+  | { type: 'peers'; teacher: number; student: number }; // сервер → вкладка: кто ещё на этой доске
 
 /** Открытые доски. Пока доска грузится из базы, здесь лежит обещание её загрузить. */
 const boards = new Map<string, Promise<BoardData | null>>();
 const rooms = new Map<string, Set<WebSocket>>();
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+/** Кто открыл вкладку: учитель или ученик. Нужно, чтобы показать «ученик на связи». */
+type Role = 'teacher' | 'student';
+const roles = new WeakMap<WebSocket, Role>();
 
 const send = (ws: WebSocket, msg: Message) => ws.send(JSON.stringify(msg));
+
+/** Рассказывает каждой вкладке в комнате, сколько учителей и учеников там кроме неё. */
+function announcePeers(peers: Set<WebSocket>): void {
+  for (const ws of peers) {
+    if (ws.readyState !== ws.OPEN) continue;
+    const others = [...peers].filter((p) => p !== ws && p.readyState === p.OPEN);
+    const count = (role: Role) => others.filter((p) => roles.get(p) === role).length;
+    send(ws, { type: 'peers', teacher: count('teacher'), student: count('student') });
+  }
+}
 
 function openBoard(room: string): Promise<BoardData | null> {
   if (!boards.has(room)) boards.set(room, loadBoard(room));
   return boards.get(room)!;
 }
 
+/**
+ * Доски, изменённые на этом сервере и ещё не записанные в базу. Неизменённую доску не пишем:
+ * серверов несколько, и другой мог уже записать в базу более свежую версию.
+ */
+const dirty = new Set<string>();
+
 /** Сохраняет доску сейчас и отменяет отложенное сохранение. */
 async function flush(room: string): Promise<void> {
   clearTimeout(saveTimers.get(room));
   saveTimers.delete(room);
+  if (!dirty.delete(room)) return;
   const board = await boards.get(room);
   if (!board) return;
   try {
     await saveBoard(room, board);
   } catch (e) {
+    dirty.add(room); // запишем при следующем сохранении
     console.error(`Не получилось сохранить доску ${room}:`, e);
   }
 }
 
 function saveLater(room: string): void {
+  dirty.add(room);
   if (!saveTimers.has(room)) saveTimers.set(room, setTimeout(() => flush(room), SAVE_DELAY));
 }
 
@@ -80,12 +103,12 @@ function reply(res: ServerResponse, status: number, body = '', type = 'text/plai
   res.end(body);
 }
 
-function readBody(req: IncomingMessage): Promise<string | null> {
+function readBody(req: IncomingMessage, limit = MAX_ROADMAP): Promise<string | null> {
   return new Promise((done) => {
     let body = '';
     req.on('data', (chunk) => {
       body += chunk;
-      if (body.length > MAX_ROADMAP) {
+      if (body.length > limit) {
         done(null);
         req.destroy();
       }
@@ -114,6 +137,34 @@ async function roadmap(req: IncomingMessage, res: ServerResponse, id: string): P
   reply(res, 204);
 }
 
+/* ---------- список учеников учителя ---------- */
+// Учитель хранит на сервере свой список учеников с ключами досок и карт:
+// так он открывается в любом браузере по ссылке входа. Ключ учителя приходит в заголовке,
+// а в базе список лежит под отпечатком ключа.
+
+/** Список учеников - имена, темы и ключи, ему хватит и мегабайта. */
+const MAX_WORKSPACE = 1024 * 1024;
+
+async function workspace(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const key = req.headers.authorization?.replace(/^Bearer /, '') ?? '';
+  if (!ROOM.test(key)) return reply(res, 403, 'Нет доступа');
+  const id = hash(`workspace:${key}`);
+  if (req.method === 'GET') {
+    const stored = await loadWorkspace(id);
+    return stored ? reply(res, 200, stored, 'application/json') : reply(res, 404, 'Списка ещё нет');
+  }
+  if (req.method !== 'PUT') return reply(res, 405);
+  const body = await readBody(req, MAX_WORKSPACE);
+  if (body === null) return reply(res, 413, 'Слишком большой список');
+  try {
+    JSON.parse(body);
+  } catch {
+    return reply(res, 400, 'Это не список');
+  }
+  await saveWorkspace(id, body);
+  reply(res, 204);
+}
+
 // Обычный запрос по адресу сервера отвечает «работает» - так его проверит и хостинг.
 const http = createServer(async (req, res) => {
   if (req.method === 'OPTIONS') return reply(res, 204);
@@ -123,6 +174,15 @@ const http = createServer(async (req, res) => {
       await roadmap(req, res, path.slice('/roadmap/'.length));
     } catch (e) {
       console.error('Ошибка дорожной карты:', e);
+      reply(res, 500, 'Ошибка базы');
+    }
+    return;
+  }
+  if (path === '/workspace') {
+    try {
+      await workspace(req, res);
+    } catch (e) {
+      console.error('Ошибка списка учеников:', e);
       reply(res, 500, 'Ошибка базы');
     }
     return;
@@ -144,7 +204,9 @@ setInterval(() => {
 
 wss.on('connection', async (ws, req) => {
   lastSeen.set(ws, Date.now());
-  const room = new URL(req.url ?? '/', 'http://localhost').searchParams.get('board');
+  const query = new URL(req.url ?? '/', 'http://localhost').searchParams;
+  const room = query.get('board');
+  roles.set(ws, query.get('role') === 'student' ? 'student' : 'teacher');
   if (!room || !ROOM.test(room)) {
     // Код закрытия хостинг может потерять по дороге, поэтому сначала говорим словами.
     send(ws, { type: 'missing' });
@@ -192,6 +254,7 @@ wss.on('connection', async (ws, req) => {
 
   ws.on('close', async () => {
     peers.delete(ws);
+    announcePeers(peers);
     if (peers.size > 0) return;
     rooms.delete(room);
     // Последний ушёл: сохраняем и убираем доску из памяти, если за это время никто не пришёл.
@@ -202,6 +265,7 @@ wss.on('connection', async (ws, req) => {
   try {
     const board = await ready;
     send(ws, board ? { type: 'init', board } : { type: 'empty' });
+    announcePeers(peers);
   } catch (e) {
     console.error(`Не получилось открыть доску ${room}:`, e);
     ws.close(1011, 'Ошибка базы');

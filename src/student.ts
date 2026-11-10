@@ -11,6 +11,7 @@ import {
   type TopicStatus,
 } from './students';
 import { hasServer, publishRoadmap, syncRoadmap, wakeServer } from './sync';
+import { pull } from './account';
 import './theme';
 
 const studentId = new URLSearchParams(location.search).get('id') ?? '';
@@ -169,5 +170,7 @@ form.addEventListener('submit', (e) => {
 input.addEventListener('input', () => (error.hidden = true));
 
 render();
+// Темы могли поменяться в другом браузере: сверяемся с сервером и рисуем заново.
+void pull().then((changed) => changed && render());
 // Сервер засыпает без посетителей: будим его, пока выбираешь ученика и тему.
 wakeServer();

@@ -28,6 +28,15 @@
         </div>
         <p id="error" class="error" hidden>Впиши имя ученика.</p>
       </form>
+
+      <!-- Список учеников хранится и на сервере: в другом браузере он открывается по ссылке входа. -->
+      <section id="account" class="account" hidden>
+        <h2>Другой браузер или компьютер</h2>
+        <p>Ученики, темы и доски сохраняются на сервере. Чтобы открыть их в другом месте, открой там ссылку входа. Никому её не отправляй: по ней видно всех учеников.</p>
+        <button id="login-link" class="share-link">Скопировать ссылку входа</button>
+        <p id="login-notice" class="share-notice" role="status" hidden></p>
+        <p id="save-state" class="save-state" role="status"></p>
+      </section>
     </main>
 
     <script type="module" src="/src/home.ts"></script>

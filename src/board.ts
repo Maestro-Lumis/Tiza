@@ -3,8 +3,9 @@ import { boardKey, getStudent, topicRoom } from './students';
 import { boundsOf, defaultSize, drawShape, type Shape, type ShapeKind } from './shapes';
 import { readDocx, splitTasks } from './tasks';
 import { applyOp, LISTS, type BoardData, type Item, type Laser, type ListName, type Op, type Wipe } from './ops';
-import { connect, hasServer, type LinkState } from './sync';
+import { chooseServer, chosenServer, connect, hasServer, probe, SERVERS, type LinkInfo, type LinkState } from './sync';
 import { readBoard, writeBoard } from './local';
+import { pull } from './account';
 import {
   autoLayout,
   downloadNotebook,
@@ -76,6 +77,9 @@ const topicId = params.get('topic');
 const room = params.get('room');
 const isGuest = room !== null;
 const STORAGE_KEY = room ?? (studentId && topicId ? boardKey(studentId, topicId) : 'tiza:board');
+// Учитель открыл доску темы в браузере, где списка учеников ещё нет (закладка, другой компьютер):
+// без списка не узнать ключ доски на сервере. Берём список с сервера и открываем доску заново.
+if (!room && studentId && topicId && !getStudent(studentId) && (await pull())) location.reload();
 /** Секретный ключ доски на сервере: у ученика он из ссылки, у учителя - из темы. */
 const serverRoom = room ?? (studentId && topicId ? topicRoom(studentId, topicId) : null);
 
@@ -1728,6 +1732,11 @@ zoomButton.addEventListener('click', resetView);
 /* ---------- клавиатура ---------- */
 
 window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !linkPanel.hidden) {
+    toggleLinkPanel(false);
+    linkStatus.focus();
+    return;
+  }
   const mod = e.metaKey || e.ctrlKey;
   const key = e.key.toLowerCase();
 
@@ -1815,7 +1824,7 @@ window.addEventListener('themechange', () => {
 const live = { strokes, images, cards, shapes, pages } as unknown as BoardData;
 
 /** Значок связи вверху: виден, только когда у сайта есть сервер. */
-const linkStatus = document.querySelector<HTMLSpanElement>('#link-status')!;
+const linkStatus = document.querySelector<HTMLButtonElement>('#link-status')!;
 const LINK_TEXT: Record<LinkState, [string, string]> = {
   connecting: ['подключение…', 'Сервер просыпается, это бывает до минуты. Пока ученик не видит твоих изменений.'],
   online: ['на связи', 'Ученик видит изменения на доске сразу.'],
@@ -1824,14 +1833,117 @@ const LINK_TEXT: Record<LinkState, [string, string]> = {
   waiting: ['ждём учителя', 'Учитель ещё не открывал эту доску. Она появится, как только он её откроет.'],
 };
 
-function showLink(state: LinkState): void {
-  linkStatus.hidden = false;
-  linkStatus.dataset.state = state;
-  linkStatus.textContent = LINK_TEXT[state][0];
-  linkStatus.dataset.tip = LINK_TEXT[state][1];
+let linkState: LinkState = 'connecting';
+let linkInfo: LinkInfo = { server: null, rtt: null, others: null };
+
+/** Кто на другом конце: учителю интересен ученик, ученику - учитель. */
+function otherHere(): boolean | null {
+  const others = linkInfo.others;
+  if (!others) return null;
+  return (isGuest ? others.teacher : others.student) > 0;
 }
 
-const link = connect(serverRoom, {
+function showLink(state: LinkState): void {
+  linkState = state;
+  linkStatus.hidden = false;
+  linkStatus.dataset.state = state;
+  const here = state === 'online' && otherHere();
+  linkStatus.textContent = here ? `${LINK_TEXT[state][0]}, ${isGuest ? 'учитель' : 'ученик'} здесь` : LINK_TEXT[state][0];
+  linkStatus.dataset.tip = `${LINK_TEXT[state][1]} Нажми - подробнее о связи.`;
+  if (!linkPanel.hidden) renderLinkPanel();
+}
+
+/* ---------- окошко связи ---------- */
+
+const linkPanel = document.querySelector<HTMLDivElement>('#link-panel')!;
+const linkPeer = document.querySelector<HTMLParagraphElement>('#link-peer')!;
+const serverList = document.querySelector<HTMLUListElement>('#server-list')!;
+const serverChoice = document.querySelector<HTMLDivElement>('#server-choice')!;
+/** Задержка до каждого сервера, мс: null - не ответил, undefined - ещё меряем. */
+const latency = new Map<string, number | null>();
+let probeTimer: ReturnType<typeof setInterval> | undefined;
+
+function renderLinkPanel(): void {
+  const here = otherHere();
+  const who = isGuest ? 'Учитель' : 'Ученик';
+  linkPeer.dataset.here = String(here === true);
+  linkPeer.textContent =
+    linkState !== 'online' ? 'Нет связи с сервером: кто на доске, пока не видно.'
+    : here === null ? 'Сервер не сообщает, кто на доске: его пора обновить.'
+    : here ? `${who} на доске и видит изменения сразу.`
+    : `${who} сейчас не на доске${SERVERS.length > 1 ? ' или подключён к другому серверу' : ''}.`;
+
+  serverList.replaceChildren(
+    ...SERVERS.map((server) => {
+      const current = linkInfo.server?.name === server.name && linkState === 'online';
+      // У текущего сервера задержку знаем по ping, у остальных - по пробному запросу.
+      const ms = current ? (linkInfo.rtt ?? latency.get(server.name)) : latency.get(server.name);
+      const item = document.createElement('li');
+      item.className = 'server';
+      item.dataset.state = ms === null ? 'down' : ms === undefined ? 'unknown' : 'up';
+      const name = document.createElement('span');
+      name.className = 'server-name';
+      name.textContent = server.name;
+      const detail = document.createElement('span');
+      detail.className = 'server-detail';
+      detail.textContent = [current ? 'сейчас' : '', ms === null ? 'не отвечает' : ms === undefined ? 'меряю…' : `${ms} мс`]
+        .filter(Boolean)
+        .join(', ');
+      item.append(name, detail);
+      return item;
+    }),
+  );
+
+  // Выбирать есть из чего, только когда серверов больше одного.
+  serverChoice.hidden = SERVERS.length < 2;
+  if (serverChoice.hidden) return;
+  const chosen = chosenServer();
+  serverChoice.replaceChildren(
+    ...[null, ...SERVERS.map((x) => x.name)].map((name) => {
+      const option = document.createElement('button');
+      option.type = 'button';
+      option.className = 'server-option';
+      option.setAttribute('role', 'radio');
+      option.setAttribute('aria-checked', String(name === chosen));
+      option.textContent = name ?? 'Авто';
+      option.dataset.tip = name ? `Всегда идти к серверу «${name}», пока он отвечает` : 'Первый сервер, который отвечает. Так учитель и ученик оказываются на одном';
+      option.addEventListener('click', () => {
+        if (name === chosen) return;
+        chooseServer(name);
+        link.reconnect();
+        renderLinkPanel();
+      });
+      return option;
+    }),
+  );
+}
+
+async function measureServers(): Promise<void> {
+  await Promise.all(
+    SERVERS.map(async (server) => {
+      latency.set(server.name, await probe(server));
+    }),
+  );
+  if (!linkPanel.hidden) renderLinkPanel();
+}
+
+function toggleLinkPanel(open = linkPanel.hidden): void {
+  linkPanel.hidden = !open;
+  linkStatus.setAttribute('aria-expanded', String(open));
+  clearInterval(probeTimer);
+  if (!open) return;
+  latency.clear();
+  renderLinkPanel();
+  void measureServers();
+  probeTimer = setInterval(measureServers, 10000);
+}
+
+linkStatus.addEventListener('click', () => toggleLinkPanel());
+document.addEventListener('pointerdown', (e) => {
+  if (!linkPanel.hidden && !linkPanel.contains(e.target as Node) && !linkStatus.contains(e.target as Node)) toggleLinkPanel(false);
+});
+
+const link = connect(serverRoom, isGuest ? 'student' : 'teacher', {
   local: () => (isGuest ? null : live),
   init(board) {
     for (const list of LISTS) {
@@ -1868,6 +1980,10 @@ const link = connect(serverRoom, {
     save();
   },
   state: showLink,
+  info(info) {
+    linkInfo = info;
+    showLink(linkState);
+  },
   laser(point: Laser) {
     remoteTrail.push({ x: point.x, y: point.y, t: performance.now(), start: point.start });
     animateLaser();
