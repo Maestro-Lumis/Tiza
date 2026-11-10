@@ -7,7 +7,7 @@
 import { createHash } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { applyOp, type BoardData, type Laser, type Op } from '../src/ops.ts';
+import { applyOp, type BoardData, type Laser, type Live, type Op } from '../src/ops.ts';
 import { loadBoard, loadRoadmap, loadWorkspace, saveBoard, saveRoadmap, saveWorkspace, storeName } from './store.ts';
 
 const PORT = Number(process.env.PORT ?? 8787);
@@ -27,6 +27,7 @@ type Message =
   | { type: 'seed'; board: BoardData } // вкладка → сервер: первая версия доски
   | { type: 'op'; op: Op } // в обе стороны: одно изменение
   | Laser // в обе стороны: точка лазерной указки, не сохраняется
+  | Live // в обе стороны: линия или фигура, которую рисуют прямо сейчас, не сохраняется
   | { type: 'ack' } // сервер → вкладка: изменение принято (по порядку)
   | { type: 'ping' } // вкладка → сервер: связь жива?
   | { type: 'pong' } // сервер → вкладка: жива
@@ -239,7 +240,7 @@ wss.on('connection', async (ws, req) => {
       for (const peer of peers) if (peer !== ws && peer.readyState === peer.OPEN) send(peer, { type: 'init', board: msg.board });
     } else if (msg.type === 'ping') {
       send(ws, { type: 'pong' });
-    } else if (msg.type === 'laser') {
+    } else if (msg.type === 'laser' || msg.type === 'live') {
       for (const peer of peers) if (peer !== ws && peer.readyState === peer.OPEN) send(peer, msg);
     } else if (msg.type === 'op') {
       const target = (await boards.get(room)) ?? board;

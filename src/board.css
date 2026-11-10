@@ -387,14 +387,17 @@ body {
   transform: translateY(-12px);
 }
 
-/* Сам ящик над полкой: две строки кнопок с фигурами. */
+/* Сам ящик над полкой: группы фигур с подписями и внизу - как рисовать новые фигуры. */
 .shapes {
   position: absolute;
   left: 50%;
   bottom: calc(100% + 12px);
   transform: translateX(-50%);
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 160px);
+  overflow-y: auto;
   pointer-events: auto;
-  padding: 10px 12px 12px;
+  padding: 12px 14px 14px;
   border-radius: 12px;
   background: var(--card);
   border: 1px solid var(--line);
@@ -406,46 +409,62 @@ body {
 }
 
 .shapes-label {
-  margin: 0 0 6px;
+  margin: 12px 0 6px;
   font-size: 12px;
+  font-weight: 600;
   color: var(--ink-2);
 }
 
-.shapes-label + .shapes-row + .shapes-label {
-  margin-top: 10px;
+.shapes-label:first-child {
+  margin-top: 0;
 }
 
+.shapes-note {
+  margin-left: 6px;
+  font-weight: 400;
+}
+
+/* Фигуры - плитки по три в ряд: значок и название рядом. */
 .shapes-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: 4px;
 }
 
-.shapes button {
-  width: 40px;
-  height: 40px;
-  display: grid;
-  place-items: center;
+.shapes-row button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 4px 8px;
   border: 0;
   border-radius: 8px;
   background: none;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+  text-align: left;
+  color: var(--ink);
   cursor: pointer;
 }
 
-.shapes button:hover {
+.shapes-row button:hover {
   background: var(--paper);
 }
 
-.shapes button[aria-pressed='true'] {
+.shapes-row button[aria-pressed='true'] {
   background: var(--paper);
   box-shadow: inset 0 0 0 2px var(--accent);
 }
 
-.shapes button:focus-visible {
+.shapes button:focus-visible,
+.shape-style button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 
-.shapes svg {
+.shapes-row svg {
+  flex: none;
   width: 26px;
   height: 26px;
   fill: none;
@@ -453,6 +472,101 @@ body {
   stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.shapes-row svg .dot {
+  fill: currentColor;
+}
+
+/* ---------- свойства фигуры ---------- */
+
+/* Ряд кнопок: цвет, толщина, пунктир и заливка, доли. Группы разделены чертой. */
+.shape-style {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.style-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.style-group + .style-group {
+  padding-left: 6px;
+  border-left: 1px solid var(--line);
+}
+
+.style-button {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.style-button:hover {
+  background: var(--paper);
+}
+
+.style-button[aria-pressed='true'] {
+  background: var(--paper);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.style-button svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+
+.style-button svg .filled {
+  fill: currentColor;
+  fill-opacity: 0.35;
+}
+
+/* Цвет - кружок того же мела, что на полке. */
+.style-swatch::after {
+  content: '';
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--chalk);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+.style-count {
+  min-width: 20px;
+  text-align: center;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+/* Панель над выделенной фигурой. */
+.shape-bar {
+  position: fixed;
+  z-index: 2;
+  padding: 4px 6px;
+  border-radius: 10px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: 0 6px 20px var(--shade);
+  pointer-events: auto;
+}
+
+.shape-bar[hidden] {
+  display: none;
 }
 
 /* ---------- значок связи ---------- */

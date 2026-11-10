@@ -1,8 +1,8 @@
 import { backgroundOf, contains, imageElement, readImage, rectOf, type BoardImage, type Rect } from './images';
 import { boardKey, getStudent, topicRoom } from './students';
-import { boundsOf, defaultSize, drawShape, type Shape, type ShapeKind } from './shapes';
+import { boundsOf, canFill, defaultSize, drawShape, MAX_PARTS, MIN_PARTS, WIDTHS, type Shape, type ShapeKind } from './shapes';
 import { readDocx, splitTasks } from './tasks';
-import { applyOp, LISTS, type BoardData, type Item, type Laser, type ListName, type Op, type Wipe } from './ops';
+import { applyOp, LISTS, type BoardData, type Item, type Laser, type ListName, type Live, type Op, type Wipe } from './ops';
 import { chooseServer, chosenServer, connect, hasServer, probe, SERVERS, type LinkInfo, type LinkState } from './sync';
 import { readBoard, writeBoard } from './local';
 import { pull } from './account';
@@ -40,7 +40,11 @@ type Change =
   | { kind: 'move'; image: Movable; from: Box; to: Box }
   // Несколько сдвигов разом, например два листа тетради поменялись местами.
   | { kind: 'moves'; moves: { image: Movable; from: Box; to: Box }[] }
-  | { kind: 'erase'; removed: Stroke[]; added: Stroke[]; wipes: { item: Movable; wipe: Wipe }[] };
+  | { kind: 'erase'; removed: Stroke[]; added: Stroke[]; wipes: { item: Movable; wipe: Wipe }[] }
+  // Сменили цвет, толщину, пунктир, заливку или доли фигуры.
+  | { kind: 'style'; item: Shape; from: Look; to: Look };
+/** Как нарисована фигура целиком: цвет мела и всё остальное. */
+type Look = { color: string; width: number; dash: boolean; fill: boolean; parts: number };
 
 /** Радиус губки в пикселях экрана: такой, чтобы стереть одну букву. */
 const ERASER_RADIUS = 8;
@@ -195,6 +199,9 @@ let shapeKind: ShapeKind = 'rect';
 let draft: Shape | null = null;
 /** Линия, которую рисуем прямо сейчас. */
 let current: Stroke | null = null;
+/** Сколько точек текущей линии уже ушло другим и ждёт ли отправки следующий кадр. */
+let liveSent = 0;
+let liveTimer: ReturnType<typeof setTimeout> | undefined;
 /** Что изменило текущее движение губки: какие линии заменены кусками и где стёрто на предметах. */
 let erased: { removed: Stroke[]; added: Stroke[]; wipes: Map<Movable, Wipe> } | null = null;
 /** Где губка: последняя стёртая точка и кружок под курсором. */
@@ -603,6 +610,7 @@ function draw(): void {
   ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
   ctx.setTransform(dpr * camera.zoom, 0, 0, dpr * camera.zoom, dpr * camera.x, dpr * camera.y);
   drawItems(draft);
+  drawRemote();
   if (notebookOpen) drawPages();
 
   if (selected && !isPage(selected)) drawSelection(selected);
@@ -610,6 +618,7 @@ function draw(): void {
   if (tool === 'eraser' && eraserRing) drawEraserRing(eraserRing);
   drawLaser();
   updateLedge();
+  updateShapeBar();
 }
 
 /** Всё, что лежит на доске: картинки, карточки, фигуры и линии. Без выделения и лазера. */
@@ -634,6 +643,89 @@ function drawItems(extra: Shape | null): void {
     withWipes(s, () => drawShape(ctx, s));
   }
   for (const s of strokes) drawStroke(s);
+}
+
+/* ---------- живое рисование ---------- */
+// Пока рисуешь линию, тянешь фигуру или двигаешь предмет, другой человек видит это сразу:
+// раз в LIVE_EVERY мс уходят новые точки линии, фигура целиком или новое место предмета.
+
+/** Сколько миллисекунд держать чужую незаконченную линию без новых точек (вдруг связь оборвалась). */
+const LIVE_LIFE = 30000;
+/** Как часто отправлять живое рисование: около 30 раз в секунду, глазу хватает. */
+const LIVE_EVERY = 30;
+const remoteStrokes = new Map<string, { stroke: Stroke; t: number }>();
+const remoteShapes = new Map<string, { shape: Shape; t: number }>();
+let remoteFrame = 0;
+
+function sendLiveSoon(): void {
+  liveTimer ??= setTimeout(flushLive, LIVE_EVERY);
+}
+
+/** Отправляет то, что изменилось с прошлой отправки. */
+function flushLive(): void {
+  liveTimer = undefined;
+  if (current) {
+    if (current.points.length <= liveSent) return;
+    link.live({ type: 'live', kind: 'stroke', id: current.id, color: current.color, from: liveSent, points: current.points.slice(liveSent) });
+    liveSent = current.points.length;
+  } else if (draft) {
+    link.live({ type: 'live', kind: 'shape', shape: { ...draft } });
+  } else if (dragging && selected) {
+    link.live({ type: 'live', kind: 'move', list: listOf(selected), id: selected.id, rect: boxSnapshot(selected) });
+  }
+}
+
+/** Чужие живые изменения приходят часто: перерисовываем не чаще раза в кадр. */
+function drawSoon(): void {
+  if (!remoteFrame) remoteFrame = requestAnimationFrame(() => {
+    remoteFrame = 0;
+    draw();
+  });
+}
+
+function receiveLive(msg: Live): void {
+  const now = performance.now();
+  if (msg.kind === 'stroke') {
+    // Готовая линия уже пришла: опоздавший кусок не нужен.
+    if (strokes.some((s) => s.id === msg.id)) return;
+    let entry = remoteStrokes.get(msg.id);
+    if (!entry) remoteStrokes.set(msg.id, (entry = { stroke: { id: msg.id, color: msg.color, points: [] }, t: now }));
+    entry.stroke.points.length = Math.min(entry.stroke.points.length, msg.from);
+    entry.stroke.points.push(...msg.points);
+    entry.t = now;
+  } else if (msg.kind === 'shape') {
+    if (shapes.some((s) => s.id === msg.shape.id)) return;
+    remoteShapes.set(msg.shape.id, { shape: msg.shape as unknown as Shape, t: now });
+  } else {
+    // Этот предмет сейчас тянем мы сами: своё движение главнее.
+    if (dragging && selected?.id === msg.id) return;
+    const item = (live[msg.list] as unknown as Movable[]).find((i) => i.id === msg.id);
+    if (item) Object.assign(item, msg.rect);
+  }
+  drawSoon();
+}
+
+/** Пришло готовое изменение: черновики с теми же id больше не нужны. */
+function forgetLive(ids: string[]): void {
+  for (const id of ids) {
+    remoteStrokes.delete(id);
+    remoteShapes.delete(id);
+  }
+}
+
+/** Чужие незаконченные линии и фигуры поверх доски. */
+function drawRemote(): void {
+  const now = performance.now();
+  for (const [id, e] of remoteStrokes) if (now - e.t > LIVE_LIFE) remoteStrokes.delete(id);
+  for (const [id, e] of remoteShapes) if (now - e.t > LIVE_LIFE) remoteShapes.delete(id);
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (const { shape } of remoteShapes.values()) {
+    ctx.strokeStyle = ctx.fillStyle = chalkColors[shape.color] ?? shape.color;
+    drawShape(ctx, shape);
+  }
+  for (const { stroke } of remoteStrokes.values()) if (stroke.points.length) drawStroke(stroke);
 }
 
 /** Рисует оба следа лазера. */
@@ -761,6 +853,10 @@ function removeFrom<T>(list: T[], item: T): void {
 
 /** Применяет действие к доске; reverse = true делает обратное (для отмены). */
 function apply(change: Change, reverse = false): void {
+  if (change.kind === 'style') {
+    Object.assign(change.item, reverse ? change.from : change.to);
+    return;
+  }
   if (change.kind === 'move') {
     Object.assign(change.image, reverse ? change.from : change.to);
     return;
@@ -812,6 +908,9 @@ function listOf(m: Movable): ListName {
 
 /** То же действие в виде изменений для сервера: другие вкладки найдут всё по id. */
 function opsOf(change: Change, reverse = false): Op[] {
+  if (change.kind === 'style') {
+    return [{ type: 'style', list: 'shapes', id: change.item.id, style: reverse ? change.from : change.to }];
+  }
   if (change.kind === 'move') {
     const m = change.image;
     return [{ type: 'move', list: listOf(m), id: m.id, rect: reverse ? change.from : change.to }];
@@ -1424,6 +1523,148 @@ function chooseShape(button: HTMLButtonElement): void {
 }
 
 boxButton.addEventListener('click', () => toggleBox());
+
+/* ---------- как нарисована фигура ---------- */
+
+/** Как рисовать новые фигуры. Цвет не тут: он всегда как у выбранного мела. */
+const LOOK_KEY = 'tiza:shape-look';
+const shapeLook: Omit<Look, 'color'> = (() => {
+  const base = { width: 3, dash: false, fill: false, parts: 4 };
+  try {
+    return { ...base, ...JSON.parse(localStorage.getItem(LOOK_KEY) ?? '{}') };
+  } catch {
+    return base;
+  }
+})();
+
+function lookOf(s: Shape): Look {
+  return { color: s.color, width: s.width ?? 3, dash: !!s.dash, fill: !!s.fill, parts: s.parts ?? 4 };
+}
+
+const WIDTH_NAMES = ['Тонкая линия', 'Обычная линия', 'Толстая линия'];
+
+function styleButton(tip: string, pressed: boolean, svg: string, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'style-button';
+  b.setAttribute('aria-pressed', String(pressed));
+  b.setAttribute('aria-label', tip);
+  b.dataset.tip = tip;
+  b.innerHTML = svg;
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+function styleGroup(...children: HTMLElement[]): HTMLDivElement {
+  const g = document.createElement('div');
+  g.className = 'style-group';
+  g.append(...children);
+  return g;
+}
+
+/**
+ * Кнопки свойств фигуры: цвет (только у выделенной), толщина, пунктир, заливка, доли.
+ * kind - какая фигура: у незамкнутых нет заливки, доли есть только у круга долей.
+ */
+function renderStyle(host: HTMLElement, look: Look | Omit<Look, 'color'>, kind: ShapeKind | null, change: (patch: Partial<Look>) => void): void {
+  const groups: HTMLElement[] = [];
+  if ('color' in look) {
+    const swatches = [...palette.querySelectorAll<HTMLButtonElement>('.chalk')].map((chalk) => {
+      const b = styleButton(chalk.dataset.tip ?? '', chalk.dataset.color === look.color, '', () => change({ color: chalk.dataset.color! }));
+      b.classList.add('style-swatch');
+      b.style.setProperty('--chalk', chalk.style.getPropertyValue('--chalk'));
+      return b;
+    });
+    groups.push(styleGroup(...swatches));
+  }
+  groups.push(
+    styleGroup(
+      ...WIDTHS.map((w, i) =>
+        styleButton(WIDTH_NAMES[i], look.width === w, `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16" style="stroke-width:${1 + i * 1.6}" /></svg>`, () => change({ width: w })),
+      ),
+    ),
+  );
+  const toggles = [
+    styleButton('Пунктир', look.dash, '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4M10 12h4M17 12h4" /></svg>', () => change({ dash: !look.dash })),
+  ];
+  if (!kind || canFill(kind)) {
+    toggles.push(
+      styleButton(
+        kind === 'fraction' ? 'Закрасить одну долю' : 'Заливка',
+        look.fill,
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><rect class="filled" x="5" y="5" width="14" height="14" rx="2" /></svg>',
+        () => change({ fill: !look.fill }),
+      ),
+    );
+  }
+  groups.push(styleGroup(...toggles));
+  if (!kind || kind === 'fraction') {
+    const count = document.createElement('span');
+    count.className = 'style-count';
+    count.textContent = String(look.parts);
+    count.dataset.tip = 'На сколько долей поделён круг';
+    const step = (d: number) => () => change({ parts: Math.min(MAX_PARTS, Math.max(MIN_PARTS, look.parts + d)) });
+    groups.push(
+      styleGroup(
+        styleButton('Меньше долей', false, '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12" /></svg>', step(-1)),
+        count,
+        styleButton('Больше долей', false, '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12M12 6v12" /></svg>', step(1)),
+      ),
+    );
+  }
+  host.replaceChildren(...groups);
+}
+
+/** Свойства новых фигур в ящике. */
+const shapeDefaults = document.querySelector<HTMLDivElement>('#shape-defaults')!;
+function renderDefaults(): void {
+  renderStyle(shapeDefaults, shapeLook, null, (patch) => {
+    Object.assign(shapeLook, patch);
+    try {
+      localStorage.setItem(LOOK_KEY, JSON.stringify(shapeLook));
+    } catch {
+      // Хранилище недоступно: выбор действует до перезагрузки.
+    }
+    renderDefaults();
+  });
+}
+renderDefaults();
+
+/** Свойства выделенной фигуры: панель над ней. */
+const shapeBar = document.querySelector<HTMLDivElement>('#shape-bar')!;
+/** Для какой фигуры и в каком виде панель уже построена: не перестраиваем её на каждом кадре. */
+let barKey = '';
+
+function restyle(shape: Shape, patch: Partial<Look>): void {
+  const from = lookOf(shape);
+  const to = { ...from, ...patch };
+  Object.assign(shape, to);
+  record({ kind: 'style', item: shape, from, to });
+  draw();
+  save();
+}
+
+/** Показывает панель над выделенной фигурой, пока её не тянут. */
+function updateShapeBar(): void {
+  const shape = selected && isShape(selected) && !dragging && tool === 'pointer' ? selected : null;
+  shapeBar.hidden = !shape;
+  if (!shape) {
+    barKey = '';
+    return;
+  }
+  const key = `${shape.id}:${JSON.stringify(lookOf(shape))}`;
+  if (key !== barKey) {
+    barKey = key;
+    renderStyle(shapeBar, lookOf(shape), shape.kind, (patch) => restyle(shape, patch));
+  }
+  // Над фигурой по центру; не помещается сверху - под ней; не выходит за края окна.
+  const b = boundsOf(shape);
+  const left = camera.x + (b.x + b.w / 2) * camera.zoom - shapeBar.offsetWidth / 2;
+  const top = camera.y + b.y * camera.zoom - shapeBar.offsetHeight - 14;
+  const below = camera.y + (b.y + b.h) * camera.zoom + 14;
+  shapeBar.style.left = `${Math.max(8, Math.min(innerWidth - shapeBar.offsetWidth - 8, left))}px`;
+  shapeBar.style.top = `${top > 8 ? top : Math.min(below, innerHeight - shapeBar.offsetHeight - 120)}px`;
+}
 shapesBox.addEventListener('click', (e) => {
   const button = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-shape]');
   if (button) chooseShape(button);
@@ -1508,7 +1749,19 @@ canvas.addEventListener('pointerdown', (e) => {
     return;
   }
   if (tool === 'shape') {
-    draft = { id: crypto.randomUUID().slice(0, 8), kind: shapeKind, color, x: p.x, y: p.y, w: 0, h: 0 };
+    draft = {
+      id: crypto.randomUUID().slice(0, 8),
+      kind: shapeKind,
+      color,
+      x: p.x,
+      y: p.y,
+      w: 0,
+      h: 0,
+      width: shapeLook.width,
+      dash: shapeLook.dash,
+      fill: shapeLook.fill && canFill(shapeKind),
+      ...(shapeKind === 'fraction' ? { parts: shapeLook.parts } : {}),
+    };
     return;
   }
   if (tool === 'eraser') {
@@ -1518,6 +1771,8 @@ canvas.addEventListener('pointerdown', (e) => {
     return;
   }
   current = { id: newId(), color, points: [p] };
+  liveSent = 0;
+  sendLiveSoon();
   strokes.push(current);
   draw();
 });
@@ -1580,6 +1835,7 @@ canvas.addEventListener('pointermove', (e) => {
       selected.w = w;
       selected.h = (w * from.h) / from.w;
     }
+    sendLiveSoon();
     return draw();
   }
   // Над рамкой листа курсор подсказывает, что её можно двигать или растягивать.
@@ -1604,14 +1860,19 @@ canvas.addEventListener('pointermove', (e) => {
     const p = pointOf(e);
     draft.w = p.x - draft.x;
     draft.h = p.y - draft.y;
+    sendLiveSoon();
     return draw();
   }
   if (!current) return;
   current.points.push(pointOf(e));
+  sendLiveSoon();
   draw();
 });
 
 function finish(): void {
+  // Живой кадр, не успевший уйти, уже не нужен: сейчас уйдёт готовое изменение.
+  clearTimeout(liveTimer);
+  liveTimer = undefined;
   const wiped = erased && (erased.removed.length > 0 || erased.wipes.size > 0);
   let changed = current !== null || !!wiped;
   if (current) record({ kind: 'add', strokes: [current] });
@@ -1655,6 +1916,8 @@ function finish(): void {
     heldTool = null;
   }
   updateCursor();
+  // Фигуру отпустили: над ней снова появляется панель свойств.
+  updateShapeBar();
   if (changed) save();
 }
 
@@ -1965,6 +2228,7 @@ const link = connect(serverRoom, isGuest ? 'student' : 'teacher', {
   },
   op(op) {
     applyOp(live, op);
+    if (op.type === 'add') forgetLive(op.items.map((i) => i.id));
     // Кто-то другой стёр выделенное: из выделения оно тоже уходит.
     if (picked) {
       picked = {
@@ -1984,6 +2248,7 @@ const link = connect(serverRoom, isGuest ? 'student' : 'teacher', {
     linkInfo = info;
     showLink(linkState);
   },
+  live: receiveLive,
   laser(point: Laser) {
     remoteTrail.push({ x: point.x, y: point.y, t: performance.now(), start: point.start });
     animateLaser();

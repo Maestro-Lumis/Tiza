@@ -66,25 +66,47 @@
         <button id="notebook" class="group-start notebook" aria-expanded="false" aria-controls="notebook-panel" aria-label="Тетрадь: листы на доске и скачивание в PDF" data-tip="Тетрадь: собрать листы и скачать PDF"></button>
       </div>
 
-      <!-- Ящик с фигурами: выезжает над полкой. Выбрал фигуру - растягиваешь её на доске мышью. -->
+      <!-- Ящик с фигурами: выезжает над полкой. Выбрал фигуру - растягиваешь её на доске мышью.
+           Внизу - как рисовать новые фигуры: толщина, пунктир, заливка, число долей. -->
       <div id="shapes" class="shapes" role="group" aria-label="Фигуры" hidden>
         <p class="shapes-label">Основные</p>
         <div class="shapes-row">
-          <button data-shape="rect" aria-pressed="false" aria-label="Прямоугольник" data-tip="Прямоугольник"><svg viewBox="0 0 28 28"><rect x="4" y="7" width="20" height="14" /></svg></button>
-          <button data-shape="ellipse" aria-pressed="false" aria-label="Круг и овал" data-tip="Круг и овал"><svg viewBox="0 0 28 28"><ellipse cx="14" cy="14" rx="10" ry="8" /></svg></button>
-          <button data-shape="triangle" aria-pressed="false" aria-label="Треугольник" data-tip="Треугольник"><svg viewBox="0 0 28 28"><path d="M14 5l10 18H4z" /></svg></button>
-          <button data-shape="right-triangle" aria-pressed="false" aria-label="Прямоугольный треугольник" data-tip="Прямоугольный треугольник"><svg viewBox="0 0 28 28"><path d="M5 5v18h18zM5 18h5v5" /></svg></button>
-          <button data-shape="line" aria-pressed="false" aria-label="Линия" data-tip="Линия"><svg viewBox="0 0 28 28"><path d="M5 23L23 5" /></svg></button>
-          <button data-shape="arrow" aria-pressed="false" aria-label="Стрелка" data-tip="Стрелка"><svg viewBox="0 0 28 28"><path d="M5 23L23 5M14 5h9v9" /></svg></button>
+          <button data-shape="rect" aria-pressed="false" aria-label="Прямоугольник" data-tip="Прямоугольник"><svg viewBox="0 0 28 28" aria-hidden="true"><rect x="4" y="7" width="20" height="14" /></svg><span>Прямоугольник</span></button>
+          <button data-shape="ellipse" aria-pressed="false" aria-label="Круг и овал" data-tip="Круг и овал"><svg viewBox="0 0 28 28" aria-hidden="true"><ellipse cx="14" cy="14" rx="10" ry="8" /></svg><span>Круг и овал</span></button>
+          <button data-shape="triangle" aria-pressed="false" aria-label="Треугольник" data-tip="Треугольник"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M14 5l10 18H4z" /></svg><span>Треугольник</span></button>
+          <button data-shape="right-triangle" aria-pressed="false" aria-label="Прямоугольный треугольник" data-tip="Прямоугольный треугольник"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M5 5v18h18zM5 18h5v5" /></svg><span>Прямоугольный треугольник</span></button>
+          <button data-shape="line" aria-pressed="false" aria-label="Линия" data-tip="Линия"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M5 23L23 5" /></svg><span>Линия</span></button>
+          <button data-shape="arrow" aria-pressed="false" aria-label="Стрелка" data-tip="Стрелка"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M5 23L23 5M14 5h9v9" /></svg><span>Стрелка</span></button>
+        </div>
+        <p class="shapes-label">Геометрия</p>
+        <div class="shapes-row">
+          <button data-shape="trapezoid" aria-pressed="false" aria-label="Трапеция" data-tip="Трапеция"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M9 7h10l6 14H3z" /></svg><span>Трапеция</span></button>
+          <button data-shape="parallelogram" aria-pressed="false" aria-label="Параллелограмм" data-tip="Параллелограмм"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M9 7h16l-6 14H3z" /></svg><span>Параллелограмм</span></button>
+          <button data-shape="rhombus" aria-pressed="false" aria-label="Ромб" data-tip="Ромб"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M14 3l10 11-10 11L4 14z" /></svg><span>Ромб</span></button>
+          <button data-shape="circle" aria-pressed="false" aria-label="Окружность: центр и радиус" data-tip="Окружность: центр и радиус"><svg viewBox="0 0 28 28" aria-hidden="true"><circle cx="14" cy="14" r="10" /><path d="M14 14h10" /><circle class="dot" cx="14" cy="14" r="1.6" /></svg><span>Окружность с радиусом</span></button>
+          <button data-shape="angle" aria-pressed="false" aria-label="Угол" data-tip="Угол"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M24 23H4l18-16M11 23a7 7 0 0 0-1.6-4.5" /></svg><span>Угол</span></button>
+          <button data-shape="protractor" aria-pressed="false" aria-label="Транспортир" data-tip="Транспортир"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M3 21a11 11 0 0 1 22 0z" /><path d="M14 21v-4M7 14l2 2M21 14l-2 2" /></svg><span>Транспортир</span></button>
         </div>
         <p class="shapes-label">Математика</p>
         <div class="shapes-row">
-          <button data-shape="axes" aria-pressed="false" aria-label="Оси координат" data-tip="Оси координат"><svg viewBox="0 0 28 28"><path d="M3 14h22M14 25V3M22 11l3 3-3 3M11 6l3-3 3 3" /></svg></button>
-          <button data-shape="numberline" aria-pressed="false" aria-label="Числовая прямая" data-tip="Числовая прямая"><svg viewBox="0 0 28 28"><path d="M3 14h22M22 11l3 3-3 3M8 11v6M14 11v6M20 11v6" /></svg></button>
-          <button data-shape="grid" aria-pressed="false" aria-label="Клетчатое поле" data-tip="Клетчатое поле"><svg viewBox="0 0 28 28"><path d="M4 4h20v20H4zM11 4v20M17 4v20M4 11h20M4 17h20" /></svg></button>
-          <button data-shape="angle" aria-pressed="false" aria-label="Угол" data-tip="Угол"><svg viewBox="0 0 28 28"><path d="M24 23H4l18-16M11 23a7 7 0 0 0-1.6-4.5" /></svg></button>
+          <button data-shape="axes" aria-pressed="false" aria-label="Оси координат" data-tip="Оси координат"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M3 14h22M14 25V3M22 11l3 3-3 3M11 6l3-3 3 3" /></svg><span>Оси координат</span></button>
+          <button data-shape="numberline" aria-pressed="false" aria-label="Числовая прямая" data-tip="Числовая прямая"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M3 14h22M22 11l3 3-3 3M8 11v6M14 11v6M20 11v6" /></svg><span>Числовая прямая</span></button>
+          <button data-shape="grid" aria-pressed="false" aria-label="Клетчатое поле" data-tip="Клетчатое поле"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M4 4h20v20H4zM11 4v20M17 4v20M4 11h20M4 17h20" /></svg><span>Клетчатое поле</span></button>
+          <button data-shape="fraction" aria-pressed="false" aria-label="Доли круга: число долей - внизу ящика, с заливкой закрашена одна доля" data-tip="Доли круга: число долей - внизу ящика, с заливкой закрашена одна доля"><svg viewBox="0 0 28 28" aria-hidden="true"><circle cx="14" cy="14" r="10" /><path d="M14 4v20M4 14h20" /></svg><span>Доли круга</span></button>
         </div>
+        <p class="shapes-label">Объёмные</p>
+        <div class="shapes-row">
+          <button data-shape="cube" aria-pressed="false" aria-label="Куб" data-tip="Куб"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M4 10h13v13H4zM4 10l6-6h13v13l-6 6M17 10l6-6" /></svg><span>Куб</span></button>
+          <button data-shape="cylinder" aria-pressed="false" aria-label="Цилиндр" data-tip="Цилиндр"><svg viewBox="0 0 28 28" aria-hidden="true"><ellipse cx="14" cy="7" rx="9" ry="3" /><path d="M5 7v14M23 7v14M5 21a9 3 0 0 0 18 0" /></svg><span>Цилиндр</span></button>
+          <button data-shape="cone" aria-pressed="false" aria-label="Конус" data-tip="Конус"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M5 21L14 4l9 17" /><path d="M5 21a9 3 0 0 0 18 0" /></svg><span>Конус</span></button>
+          <button data-shape="pyramid" aria-pressed="false" aria-label="Пирамида" data-tip="Пирамида"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M3 23h14l8-5M3 23L14 4l3 19M14 4l11 14" /></svg><span>Пирамида</span></button>
+        </div>
+        <p class="shapes-label">Как рисовать новые фигуры <span class="shapes-note">цвет - как у выбранного мела</span></p>
+        <div id="shape-defaults" class="shape-style"></div>
       </div>
+
+      <!-- Свойства выделенной фигуры: появляются над ней. -->
+      <div id="shape-bar" class="shape-style shape-bar" role="toolbar" aria-label="Свойства фигуры" hidden></div>
 
       <div class="ledge">
         <div class="group">

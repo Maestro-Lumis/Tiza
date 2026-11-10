@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { applyOp, type BoardData, type Laser, type Op } from './ops';
+import { applyOp, type BoardData, type Laser, type Live, type Op } from './ops';
 import { roadmapOf, type Roadmap, type Student } from './students';
 
 /**
@@ -143,6 +143,8 @@ type Handlers = {
   op: (op: Op) => void;
   /** Точка лазера от другой вкладки или ученика. */
   laser: (point: Laser) => void;
+  /** Линия, фигура или перетаскивание, которые другой человек делает прямо сейчас. */
+  live: (msg: Live) => void;
   /** Связь появилась или пропала. */
   state: (state: LinkState) => void;
   /** Сменился сервер, задержка или кто ещё на доске. */
@@ -150,7 +152,7 @@ type Handlers = {
 };
 
 /** Связь доски с сервером: отправить изменение, точку лазера, переподключиться после смены сервера. */
-export type Link = { send: (op: Op) => void; laser: (point: Laser) => void; reconnect: () => void };
+export type Link = { send: (op: Op) => void; laser: (point: Laser) => void; live: (msg: Live) => void; reconnect: () => void };
 
 /**
  * Подключает доску к серверу. Пока связи нет (сервер просыпается или пропал), изменения копятся
@@ -250,6 +252,7 @@ export function connect(room: string | null, role: 'teacher' | 'student', on: Ha
         seeded = []; // сервер уже живёт с нашей доской
         on.op(msg.op);
       } else if (msg.type === 'laser') on.laser(msg);
+      else if (msg.type === 'live') on.live(msg);
       // На связи мы, когда сервер прислал доску (или сказал, что её нет), а не когда открылось соединение.
       if (msg.type === 'empty' || msg.type === 'init') {
         clearTimeout(giveUp);
@@ -317,6 +320,10 @@ export function connect(room: string | null, role: 'teacher' | 'student', on: Ha
     // Лазер без связи не копим: через минуту старый след уже никому не нужен.
     laser(point) {
       if (synced && ws?.readyState === WebSocket.OPEN) send(point);
+    },
+    // Живое рисование тоже не копим: по окончании всё равно придёт обычное изменение.
+    live(msg) {
+      if (synced && ws?.readyState === WebSocket.OPEN) send(msg);
     },
     /** Выбор сервера сменился: подключаемся заново по новому порядку. */
     reconnect() {

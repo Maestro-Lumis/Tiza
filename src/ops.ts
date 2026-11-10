@@ -19,6 +19,8 @@ export type Op =
   | { type: 'remove'; list: ListName; ids: string[] }
   // s - масштаб карточки задания; f и n - формат и номер листа тетради.
   | { type: 'move'; list: ListName; id: string; rect: { x: number; y: number; w: number; h: number; s?: number; f?: string; n?: number } }
+  // Как нарисован предмет: у фигуры цвет, толщина линии, пунктир, заливка, число долей.
+  | { type: 'style'; list: ListName; id: string; style: Record<string, string | number | boolean> }
   | { type: 'wipe'; list: ListName; id: string; wipe: Wipe }
   | { type: 'unwipe'; list: ListName; id: string; wipeId: string };
 
@@ -27,6 +29,17 @@ export type Op =
  * start - первая точка нового движения, с прошлым следом её не соединяем.
  */
 export type Laser = { type: 'laser'; x: number; y: number; start?: boolean };
+
+/**
+ * Живое рисование: то, что человек делает прямо сейчас, пока не отпустил мышь.
+ * Летит к остальным сразу и не сохраняется: когда он отпустит мышь, придёт обычное изменение.
+ * stroke - новые точки линии начиная с номера from; shape - растягиваемая фигура целиком;
+ * move - предмет, который двигают или растягивают.
+ */
+export type Live =
+  | { type: 'live'; kind: 'stroke'; id: string; color: string; from: number; points: { x: number; y: number }[] }
+  | { type: 'live'; kind: 'shape'; shape: Item & { x: number; y: number; w: number; h: number } }
+  | { type: 'live'; kind: 'move'; list: ListName; id: string; rect: { x: number; y: number; w: number; h: number; s?: number } };
 
 export const LISTS: ListName[] = ['strokes', 'images', 'cards', 'shapes', 'pages'];
 
@@ -48,6 +61,7 @@ export function applyOp(board: BoardData, op: Op): void {
     const item = list.find((i) => i.id === op.id);
     if (!item) return;
     if (op.type === 'move') Object.assign(item, op.rect);
+    else if (op.type === 'style') Object.assign(item, op.style);
     else if (op.type === 'wipe') {
       item.wipes ??= [];
       if (!item.wipes.some((w) => w.id === op.wipe.id)) item.wipes.push(op.wipe);
