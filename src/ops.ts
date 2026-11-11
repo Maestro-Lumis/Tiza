@@ -37,9 +37,11 @@ export type Laser = { type: 'laser'; x: number; y: number; start?: boolean };
  * move - предмет, который двигают или растягивают.
  */
 export type Live =
-  | { type: 'live'; kind: 'stroke'; id: string; color: string; from: number; points: { x: number; y: number }[] }
+  | { type: 'live'; kind: 'stroke'; id: string; color: string; w?: number; from: number; points: { x: number; y: number }[] }
   | { type: 'live'; kind: 'shape'; shape: Item & { x: number; y: number; w: number; h: number } }
-  | { type: 'live'; kind: 'move'; list: ListName; id: string; rect: { x: number; y: number; w: number; h: number; s?: number } };
+  | { type: 'live'; kind: 'move'; list: ListName; id: string; rect: { x: number; y: number; w: number; h: number; s?: number } }
+  // Где сейчас мышь учителя или ученика на доске; away - мышь ушла с доски.
+  | { type: 'live'; kind: 'cursor'; role: 'teacher' | 'student'; x: number; y: number; away?: boolean };
 
 export const LISTS: ListName[] = ['strokes', 'images', 'cards', 'shapes', 'pages'];
 

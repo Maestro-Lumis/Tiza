@@ -22,7 +22,8 @@ import {
 import './theme';
 
 type Point = { x: number; y: number };
-type Stroke = { id: string; color: string; points: Point[] };
+/** w - толщина мела; у старых линий её нет, тогда обычная (3). */
+type Stroke = { id: string; color: string; w?: number; points: Point[] };
 type Tool = 'pen' | 'eraser' | 'pointer' | 'laser' | 'shape' | 'select';
 /** Карточка задания из Word. Высота считается по тексту при отрисовке. */
 /** s - масштаб: карточку можно увеличить или уменьшить целиком, вместе с текстом. */
@@ -48,6 +49,17 @@ type Look = { color: string; width: number; dash: boolean; fill: boolean; parts:
 
 /** Радиус губки в пикселях экрана: такой, чтобы стереть одну букву. */
 const ERASER_RADIUS = 8;
+/** Толщина мела по умолчанию и пределы ползунка. */
+const CHALK_WIDTH = 3;
+const MIN_CHALK = 1;
+const MAX_CHALK = 24;
+/** Готовые толщины мела: тонкий, обычный, средний, толстый, очень толстый. */
+const CHALK_SIZES = [1.5, 3, 6, 10, 16];
+
+/** Губка задевает линию краем: у толстой линии край дальше от середины. */
+function eraseRadius(s: Stroke): number {
+  return ERASER_RADIUS / camera.zoom + Math.max(0, (s.w ?? CHALK_WIDTH) - CHALK_WIDTH) / 2;
+}
 const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 5;
 /** Размер уголка для изменения размера картинки - в пикселях экрана. */
@@ -260,6 +272,7 @@ function resize(): void {
 
 function drawStroke(s: Stroke): void {
   ctx.strokeStyle = chalkColors[s.color] ?? s.color;
+  ctx.lineWidth = s.w ?? CHALK_WIDTH;
   ctx.beginPath();
   ctx.moveTo(s.points[0].x, s.points[0].y);
   for (const p of s.points) ctx.lineTo(p.x, p.y);
@@ -272,11 +285,20 @@ function drawStroke(s: Stroke): void {
  * Цвет линии хранится кодом мела (#25231f - графит и т. д.),
  * а рисуется цветом текущей темы: в тёмной теме графит становится белым мелом.
  */
-const CHALK_VARS: Record<string, string> = {
-  '#25231f': '--chalk-ink',
-  '#ae4f29': '--chalk-red',
-  '#33589e': '--chalk-blue',
-};
+/** Все цвета мела: код (так цвет хранится на доске), переменная темы и название. */
+const COLORS = [
+  { code: '#25231f', css: '--chalk-ink', name: 'Основной' },
+  { code: '#ae4f29', css: '--chalk-red', name: 'Терракота' },
+  { code: '#33589e', css: '--chalk-blue', name: 'Синий' },
+  { code: '#c0392b', css: '--chalk-scarlet', name: 'Красный' },
+  { code: '#2f7d4f', css: '--chalk-green', name: 'Зелёный' },
+  { code: '#a8800e', css: '--chalk-yellow', name: 'Жёлтый' },
+  { code: '#6b3fa0', css: '--chalk-purple', name: 'Фиолетовый' },
+  { code: '#b83f78', css: '--chalk-pink', name: 'Розовый' },
+  { code: '#1f7f86', css: '--chalk-teal', name: 'Бирюзовый' },
+  { code: '#7d776b', css: '--chalk-gray', name: 'Серый' },
+];
+const CHALK_VARS: Record<string, string> = Object.fromEntries(COLORS.map((c) => [c.code, c.css]));
 const chalkColors: Record<string, string> = {};
 let paperColor = '';
 let accentColor = '';
@@ -619,6 +641,7 @@ function draw(): void {
   drawLaser();
   updateLedge();
   updateShapeBar();
+  updatePeer();
 }
 
 /** Всё, что лежит на доске: картинки, карточки, фигуры и линии. Без выделения и лазера. */
@@ -666,7 +689,7 @@ function flushLive(): void {
   liveTimer = undefined;
   if (current) {
     if (current.points.length <= liveSent) return;
-    link.live({ type: 'live', kind: 'stroke', id: current.id, color: current.color, from: liveSent, points: current.points.slice(liveSent) });
+    link.live({ type: 'live', kind: 'stroke', id: current.id, color: current.color, w: current.w, from: liveSent, points: current.points.slice(liveSent) });
     liveSent = current.points.length;
   } else if (draft) {
     link.live({ type: 'live', kind: 'shape', shape: { ...draft } });
@@ -689,21 +712,116 @@ function receiveLive(msg: Live): void {
     // Готовая линия уже пришла: опоздавший кусок не нужен.
     if (strokes.some((s) => s.id === msg.id)) return;
     let entry = remoteStrokes.get(msg.id);
-    if (!entry) remoteStrokes.set(msg.id, (entry = { stroke: { id: msg.id, color: msg.color, points: [] }, t: now }));
+    if (!entry) remoteStrokes.set(msg.id, (entry = { stroke: { id: msg.id, color: msg.color, ...(msg.w ? { w: msg.w } : {}), points: [] }, t: now }));
     entry.stroke.points.length = Math.min(entry.stroke.points.length, msg.from);
     entry.stroke.points.push(...msg.points);
     entry.t = now;
   } else if (msg.kind === 'shape') {
     if (shapes.some((s) => s.id === msg.shape.id)) return;
     remoteShapes.set(msg.shape.id, { shape: msg.shape as unknown as Shape, t: now });
-  } else {
+  } else if (msg.kind === 'move') {
     // Этот предмет сейчас тянем мы сами: своё движение главнее.
     if (dragging && selected?.id === msg.id) return;
-    const item = (live[msg.list] as unknown as Movable[]).find((i) => i.id === msg.id);
+    const item = (live[msg.list] as unknown as Movable[] | undefined)?.find((i) => i.id === msg.id);
     if (item) Object.assign(item, msg.rect);
+  } else if (msg.kind === 'cursor') {
+    return receiveCursor(msg);
   }
   drawSoon();
 }
+
+/* ---------- где сейчас другой человек ---------- */
+// Указатель ученика у учителя (и учителя у ученика): видно, куда он смотрит и что рисует.
+// Если он за краем экрана, у края висит метка со стрелкой; клик по ней - перейти к нему.
+
+const peerEl = document.querySelector<HTMLButtonElement>('#peer')!;
+const peerName = peerEl.querySelector<HTMLSpanElement>('.peer-name')!;
+const myRole = isGuest ? 'student' : 'teacher';
+/** Как часто отправлять, где моя мышь, и через сколько без движения чужой указатель бледнеет. */
+const CURSOR_EVERY = 60;
+const PEER_IDLE = 8000;
+/** Отступ метки от края экрана; сверху заголовок, снизу полка - их не закрываем. */
+const EDGE = 12;
+const EDGE_TOP = 60;
+const EDGE_BOTTOM = 110;
+
+type Peer = { x: number; y: number; role: 'teacher' | 'student'; away: boolean; t: number };
+let peer: Peer | null = null;
+let cursorAt: Point | null = null;
+let cursorAway = false;
+let cursorTimer: ReturnType<typeof setTimeout> | undefined;
+
+function sendCursorSoon(): void {
+  cursorTimer ??= setTimeout(() => {
+    cursorTimer = undefined;
+    if (cursorAt) link.live({ type: 'live', kind: 'cursor', role: myRole, x: cursorAt.x, y: cursorAt.y, ...(cursorAway ? { away: true } : {}) });
+  }, CURSOR_EVERY);
+}
+
+function receiveCursor(msg: Extract<Live, { kind: 'cursor' }>): void {
+  // Своя же вторая вкладка - не «другой человек».
+  if (msg.role === myRole) return;
+  peer = { x: msg.x, y: msg.y, role: msg.role, away: !!msg.away, t: performance.now() };
+  updatePeer();
+}
+
+/** Учитель видит имя ученика, ученик - «Учитель». */
+function peerLabel(role: Peer['role']): string {
+  if (role === 'teacher') return 'Учитель';
+  return (studentId && getStudent(studentId)?.name) || 'Ученик';
+}
+
+function updatePeer(): void {
+  if (!peer) {
+    peerEl.hidden = true;
+    return;
+  }
+  peerEl.hidden = false;
+  peerEl.dataset.role = peer.role;
+  peerName.textContent = peerLabel(peer.role);
+  peerEl.classList.toggle('is-idle', peer.away || performance.now() - peer.t > PEER_IDLE);
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  const sx = camera.x + peer.x * camera.zoom;
+  const sy = camera.y + peer.y * camera.zoom;
+  const inside = sx >= 0 && sx <= w && sy >= EDGE_TOP / 2 && sy <= h - EDGE_BOTTOM / 2;
+  peerEl.classList.toggle('is-edge', !inside);
+  if (inside) {
+    peerEl.style.left = `${sx}px`;
+    peerEl.style.top = `${sy}px`;
+    peerEl.style.setProperty('--turn', '0deg');
+    peerEl.removeAttribute('data-tip');
+    peerEl.removeAttribute('aria-label');
+    peerEl.tabIndex = -1;
+    return;
+  }
+  // За краем: метка у края на линии от центра экрана к нему, стрелка смотрит в его сторону.
+  // Метку держим целиком на экране: считаем по её собственному размеру.
+  const halfW = peerEl.offsetWidth / 2;
+  const halfH = peerEl.offsetHeight / 2;
+  const ex = Math.min(Math.max(sx, EDGE + halfW), w - EDGE - halfW);
+  const ey = Math.min(Math.max(sy, EDGE_TOP + halfH), h - EDGE_BOTTOM - halfH);
+  // Стрелка курсора остриём смотрит влево-вверх (-135°): доворачиваем её на нужный угол.
+  const turn = (Math.atan2(sy - ey, sx - ex) * 180) / Math.PI + 135;
+  peerEl.style.left = `${ex}px`;
+  peerEl.style.top = `${ey}px`;
+  peerEl.style.setProperty('--turn', `${turn}deg`);
+  peerEl.dataset.tip = `Перейти туда, где ${peer.role === 'teacher' ? 'учитель' : 'ученик'}`;
+  peerEl.setAttribute('aria-label', `${peerLabel(peer.role)} за краем экрана. Перейти к нему`);
+  peerEl.tabIndex = 0;
+}
+
+/** Переносит экран так, чтобы указатель другого был посередине. */
+function goToPeer(): void {
+  if (!peer) return;
+  camera.x = canvas.clientWidth / 2 - peer.x * camera.zoom;
+  camera.y = canvas.clientHeight / 2 - peer.y * camera.zoom;
+  draw();
+}
+
+peerEl.addEventListener('click', goToPeer);
+// Указатель бледнеет, когда его долго не двигают: проверяем раз в секунду.
+setInterval(updatePeer, 1000);
 
 /** Пришло готовое изменение: черновики с теми же id больше не нужны. */
 function forgetLive(ids: string[]): void {
@@ -980,7 +1098,7 @@ function distToSegment(p: Point, a: Point, b: Point): number {
 
 function touches(s: Stroke, p: Point): boolean {
   // Губка одного размера на экране при любом масштабе.
-  const r = ERASER_RADIUS / camera.zoom;
+  const r = eraseRadius(s);
   if (s.points.length === 1) return Math.hypot(p.x - s.points[0].x, p.y - s.points[0].y) < r;
   for (let i = 1; i < s.points.length; i++) {
     if (distToSegment(p, s.points[i - 1], s.points[i]) < r) return true;
@@ -1021,7 +1139,7 @@ const round = (n: number) => Math.round(n * 10000) / 10000;
 
 /** Вырезает из линии круг губки. Возвращает куски, которые остались. */
 function cutStroke(s: Stroke, p: Point): Stroke[] {
-  const r = ERASER_RADIUS / camera.zoom;
+  const r = eraseRadius(s);
   const runs: Point[][] = [];
   let run: Point[] = [];
   const visit = (q: Point) => {
@@ -1039,7 +1157,7 @@ function cutStroke(s: Stroke, p: Point): Stroke[] {
     visit(q);
   });
   if (run.length) runs.push(run);
-  return runs.filter((points) => points.length > 1).map((points) => ({ id: newId(), color: s.color, points }));
+  return runs.filter((points) => points.length > 1).map((points) => ({ id: newId(), color: s.color, ...(s.w ? { w: s.w } : {}), points }));
 }
 
 /** Ведёт губку до точки: быстрое движение мыши не должно оставлять нестёртых промежутков. */
@@ -1522,7 +1640,303 @@ function chooseShape(button: HTMLButtonElement): void {
   updateCursor();
 }
 
-boxButton.addEventListener('click', () => toggleBox());
+boxButton.addEventListener('click', () => {
+  toggleColors(false);
+  toggleBox();
+});
+
+/* ---------- все цвета мела ---------- */
+// На полке три основных мелка и четвёртый - последний выбранный из палитры.
+
+const colorPanel = document.querySelector<HTMLDivElement>('#color-panel')!;
+const colorsButton = document.querySelector<HTMLButtonElement>('#colors')!;
+const extraChalk = document.querySelector<HTMLButtonElement>('#chalk-extra')!;
+const EXTRA_KEY = 'tiza:extra-chalk';
+const RECENT_KEY = 'tiza:recent-colors';
+/** Сколько недавних своих цветов помнить. */
+const RECENT_MAX = 8;
+/** Цвет мела: из набора (подстраивается под тему) или свой из палитры (рисуется как есть). */
+type ChalkColor = { code: string; css?: string; name: string };
+
+/** Цвет в HSL переводим в код #rrggbb: так он хранится на доске. */
+function hslHex(h: number, s: number, l: number): string {
+  const a = (s / 100) * Math.min(l / 100, 1 - l / 100);
+  const part = (n: number) => {
+    const k = (n + h / 30) % 12;
+    const v = l / 100 - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    return Math.round(v * 255).toString(16).padStart(2, '0');
+  };
+  return `#${part(0)}${part(8)}${part(4)}`;
+}
+
+/** Палитра - коробка мелков: 12 тонов по кругу, от бледного к тёмному, и ряд серых. У каждого своё название. */
+const HUES = [0, 20, 38, 52, 80, 130, 160, 185, 205, 230, 265, 310];
+const HUE_NAMES = ['красный', 'оранжевый', 'охристый', 'жёлтый', 'салатовый', 'зелёный', 'изумрудный', 'бирюзовый', 'голубой', 'синий', 'фиолетовый', 'малиновый'];
+const SHADES: [number, string][] = [
+  [80, 'Бледно-'],
+  [65, 'Светло-'],
+  [50, ''],
+  [36, 'Тёмно-'],
+];
+const GRAYS: [number, string][] = [
+  [100, 'Белый'],
+  [91, 'Жемчужный'],
+  [82, 'Серебристый'],
+  [73, 'Светло-серый'],
+  [64, 'Пепельный'],
+  [55, 'Серый'],
+  [46, 'Тёмно-серый'],
+  [37, 'Графитовый'],
+  [28, 'Асфальтовый'],
+  [19, 'Угольный'],
+  [10, 'Сажа'],
+  [0, 'Чёрный'],
+];
+const capital = (text: string) => text[0].toUpperCase() + text.slice(1);
+const PALETTE: { code: string; name: string }[] = [
+  ...SHADES.flatMap(([l, prefix]) =>
+    HUES.map((h, i) => ({ code: hslHex(h, l > 70 ? 75 : 65, l), name: capital(prefix + HUE_NAMES[i]) })),
+  ),
+  ...GRAYS.map(([l, name]) => ({ code: hslHex(0, 0, l), name })),
+];
+
+/** Название цвета: из коробки, из набора мелков или просто «свой цвет». */
+function colorName(code: string): string {
+  return PALETTE.find((c) => c.code === code)?.name ?? COLORS.find((c) => c.code === code)?.name ?? 'Свой цвет';
+}
+
+function readRecent(): string[] {
+  try {
+    const list = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]');
+    return Array.isArray(list) ? list.filter((c) => /^#[0-9a-f]{6}$/i.test(c)).slice(0, RECENT_MAX) : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberRecent(code: string): void {
+  try {
+    const list = [code, ...readRecent().filter((c) => c !== code)].slice(0, RECENT_MAX);
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list));
+  } catch {
+    // Хранилище недоступно: недавние не запомнятся.
+  }
+}
+
+/**
+ * С какого цвета открыть системное окно выбора: с того, что видно на доске.
+ * Код основного мела почти чёрный, а на тёмной доске он рисуется белым - начинать
+ * с кода значило бы открыть тёмное колесо с яркостью около 15%.
+ */
+function pickerStart(code: string): string {
+  const shown = (chalkColors[code] ?? code).trim().toLowerCase();
+  return /^#[0-9a-f]{6}$/.test(shown) ? shown : '#2f7d4f';
+}
+
+/** Свой цвет по коду: из набора, если совпал, иначе как есть. */
+function colorOf(code: string): ChalkColor {
+  return COLORS.find((c) => c.code === code) ?? { code, name: colorName(code) };
+}
+
+function toggleColors(open = colorPanel.hidden): void {
+  if (open) {
+    toggleBox(false);
+    renderColors();
+  }
+  colorPanel.hidden = !open;
+  colorsButton.setAttribute('aria-expanded', String(open));
+}
+
+/** Четвёртый мелок на полке становится этим цветом. */
+function setExtraChalk(c: ChalkColor): void {
+  extraChalk.dataset.color = c.code;
+  extraChalk.style.setProperty('--chalk', c.css ? `var(${c.css})` : c.code);
+  const name = c.name.toLowerCase();
+  extraChalk.setAttribute('aria-label', `Мел, ${name} (4)`);
+  extraChalk.dataset.tip = `Мел: ${name}`;
+}
+
+function pickColor(c: ChalkColor): void {
+  const main = [...palette.querySelectorAll<HTMLButtonElement>('.chalk:not(#chalk-extra)')].find((b) => b.dataset.color === c.code);
+  if (!main) {
+    setExtraChalk(c);
+    try {
+      localStorage.setItem(EXTRA_KEY, c.code);
+    } catch {
+      // Хранилище недоступно: цвет на полке до перезагрузки.
+    }
+  }
+  if (!c.css) rememberRecent(c.code);
+  select(main ?? extraChalk);
+  toggleColors(false);
+}
+
+function colorLabel(text: string): HTMLParagraphElement {
+  const p = document.createElement('p');
+  p.className = 'color-label';
+  p.textContent = text;
+  return p;
+}
+
+/** Мелок в коробке: круглая палочка цвета code со стёртым кончиком. Наведёшь - сверху его название. */
+function swatch(code: string): HTMLButtonElement {
+  const name = colorName(code);
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'color-swatch';
+  b.style.setProperty('--c', code);
+  b.setAttribute('aria-label', name);
+  b.setAttribute('aria-pressed', String(tool === 'pen' && color === code));
+  b.addEventListener('click', () => pickColor({ code, name }));
+  const show = () => (colorPanel.querySelector('.color-name')!.textContent = name);
+  b.addEventListener('pointerenter', show);
+  b.addEventListener('focus', show);
+  return b;
+}
+
+/* ---------- толщина мела ---------- */
+
+const WIDTH_KEY = 'tiza:chalk-width';
+let chalkWidth = (() => {
+  try {
+    const w = Number(localStorage.getItem(WIDTH_KEY));
+    return w >= MIN_CHALK && w <= MAX_CHALK ? w : CHALK_WIDTH;
+  } catch {
+    return CHALK_WIDTH;
+  }
+})();
+
+/** Мелки на полке толще или тоньше вместе с выбранной толщиной: её видно, не открывая палитру. */
+function showChalkWidth(): void {
+  palette.style.setProperty('--chalk-size', `${Math.round(10 + Math.min(chalkWidth, 16) * 0.75)}px`);
+  for (const b of colorPanel.querySelectorAll<HTMLButtonElement>('.size-option')) {
+    b.setAttribute('aria-pressed', String(Number(b.dataset.size) === chalkWidth));
+  }
+  const range = colorPanel.querySelector<HTMLInputElement>('.size-range');
+  if (range) range.value = String(chalkWidth);
+  const value = colorPanel.querySelector('.size-value');
+  if (value) value.textContent = String(chalkWidth).replace('.', ',');
+}
+
+function setChalkWidth(w: number): void {
+  chalkWidth = Math.min(MAX_CHALK, Math.max(MIN_CHALK, Math.round(w * 2) / 2));
+  try {
+    localStorage.setItem(WIDTH_KEY, String(chalkWidth));
+  } catch {
+    // Хранилище недоступно: толщина до перезагрузки.
+  }
+  showChalkWidth();
+}
+
+/** Пять готовых толщин кружками и ползунок для точной. */
+function sizeControls(): HTMLDivElement {
+  const row = document.createElement('div');
+  row.className = 'size-row';
+  const names = ['Тонкий', 'Обычный', 'Средний', 'Толстый', 'Очень толстый'];
+  for (const [i, size] of CHALK_SIZES.entries()) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'size-option';
+    b.dataset.size = String(size);
+    b.dataset.tip = names[i];
+    b.setAttribute('aria-label', `${names[i]} мел`);
+    b.style.setProperty('--dot', `${Math.max(3, size * 1.4)}px`);
+    b.addEventListener('click', () => setChalkWidth(size));
+    row.append(b);
+  }
+  const range = document.createElement('input');
+  range.type = 'range';
+  range.className = 'size-range';
+  range.min = String(MIN_CHALK);
+  range.max = String(MAX_CHALK);
+  range.step = '0.5';
+  range.setAttribute('aria-label', 'Толщина мела');
+  range.addEventListener('input', () => setChalkWidth(Number(range.value)));
+  const value = document.createElement('span');
+  value.className = 'size-value';
+  row.append(range, value);
+  return row;
+}
+
+function renderColors(): void {
+  const chalks = document.createElement('div');
+  chalks.className = 'color-chalks';
+  chalks.append(
+    ...COLORS.map((c) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'color-option';
+      b.style.setProperty('--chalk', `var(${c.css})`);
+      b.setAttribute('aria-pressed', String(tool === 'pen' && color === c.code));
+      b.textContent = c.name;
+      b.addEventListener('click', () => pickColor(c));
+      return b;
+    }),
+  );
+  // Коробка мелков; над ней название мелка под мышью, а пока мышь не на мелке - текущего цвета.
+  const current = () => (tool === 'pen' ? colorName(color) : '');
+  const nameLine = document.createElement('p');
+  nameLine.className = 'color-name';
+  nameLine.setAttribute('aria-live', 'polite');
+  nameLine.textContent = current();
+  const grid = document.createElement('div');
+  grid.className = 'color-grid';
+  grid.append(...PALETTE.map((c) => swatch(c.code)));
+  grid.addEventListener('pointerleave', () => (nameLine.textContent = current()));
+
+  // Свой цвет: системное окно выбора любого цвета. Пока его подбирают, мелок на полке
+  // меняется сразу, а палитру не закрываем и не перестраиваем: иначе браузер закроет
+  // и системное окно цветов.
+  const custom = document.createElement('label');
+  custom.className = 'color-custom';
+  const input = document.createElement('input');
+  input.type = 'color';
+  input.value = pickerStart(color);
+  const useCustom = () => {
+    setExtraChalk(colorOf(input.value));
+    if (tool !== 'pen' || color !== input.value) select(extraChalk);
+  };
+  input.addEventListener('input', useCustom);
+  input.addEventListener('change', () => {
+    useCustom();
+    rememberRecent(input.value);
+    try {
+      localStorage.setItem(EXTRA_KEY, input.value);
+    } catch {
+      // Хранилище недоступно: цвет на полке до перезагрузки.
+    }
+  });
+  custom.append(input, 'Свой цвет…');
+
+  const recent = readRecent();
+  const parts: HTMLElement[] = [
+    colorLabel('Толщина мела - клавиши [ и ]'),
+    sizeControls(),
+    colorLabel('Мелки - сами подстраиваются под светлую и тёмную тему'),
+    chalks,
+    colorLabel('Коробка мелков'),
+    nameLine,
+    grid,
+  ];
+  if (recent.length) {
+    const row = document.createElement('div');
+    row.className = 'color-recent';
+    row.append(...recent.map(swatch));
+    parts.push(colorLabel('Недавние'), row);
+  }
+  parts.push(custom);
+  colorPanel.replaceChildren(...parts);
+  showChalkWidth();
+}
+
+showChalkWidth();
+
+try {
+  const saved = localStorage.getItem(EXTRA_KEY);
+  if (saved && /^#[0-9a-f]{6}$/i.test(saved)) setExtraChalk(colorOf(saved));
+} catch {
+  // Хранилище недоступно: на полке зелёный.
+}
 
 /* ---------- как нарисована фигура ---------- */
 
@@ -1566,16 +1980,43 @@ function styleGroup(...children: HTMLElement[]): HTMLDivElement {
  * Кнопки свойств фигуры: цвет (только у выделенной), толщина, пунктир, заливка, доли.
  * kind - какая фигура: у незамкнутых нет заливки, доли есть только у круга долей.
  */
-function renderStyle(host: HTMLElement, look: Look | Omit<Look, 'color'>, kind: ShapeKind | null, change: (patch: Partial<Look>) => void): void {
+function renderStyle(
+  host: HTMLElement,
+  look: Look | Omit<Look, 'color'>,
+  kind: ShapeKind | null,
+  change: (patch: Partial<Look>) => void,
+  preview: (patch: Partial<Look>) => void = change,
+): void {
   const groups: HTMLElement[] = [];
   if ('color' in look) {
-    const swatches = [...palette.querySelectorAll<HTMLButtonElement>('.chalk')].map((chalk) => {
-      const b = styleButton(chalk.dataset.tip ?? '', chalk.dataset.color === look.color, '', () => change({ color: chalk.dataset.color! }));
+    const swatches = COLORS.map((c) => {
+      const b = styleButton(c.name, c.code === look.color, '', () => change({ color: c.code }));
       b.classList.add('style-swatch');
-      b.style.setProperty('--chalk', chalk.style.getPropertyValue('--chalk'));
+      b.style.setProperty('--chalk', `var(${c.css})`);
       return b;
     });
-    groups.push(styleGroup(...swatches));
+    // Свой цвет из палитры: показываем его рядом, а кружок-радуга открывает выбор любого цвета.
+    if (!COLORS.some((c) => c.code === look.color)) {
+      const own = styleButton('Свой цвет', true, '', () => {});
+      own.classList.add('style-swatch');
+      own.style.setProperty('--chalk', look.color);
+      swatches.push(own);
+    }
+    const any = document.createElement('label');
+    any.className = 'style-button style-any';
+    any.dataset.tip = 'Любой цвет';
+    const input = document.createElement('input');
+    input.type = 'color';
+    input.setAttribute('aria-label', 'Любой цвет');
+    input.value = pickerStart(look.color);
+    // Пока подбирают цвет, фигура красится сразу, а в историю попадает одно изменение - в конце.
+    input.addEventListener('input', () => preview({ color: input.value }));
+    input.addEventListener('change', () => {
+      rememberRecent(input.value);
+      change({ color: input.value });
+    });
+    any.append(input);
+    groups.push(styleGroup(...swatches, any));
   }
   groups.push(
     styleGroup(
@@ -1635,8 +2076,7 @@ const shapeBar = document.querySelector<HTMLDivElement>('#shape-bar')!;
 /** Для какой фигуры и в каком виде панель уже построена: не перестраиваем её на каждом кадре. */
 let barKey = '';
 
-function restyle(shape: Shape, patch: Partial<Look>): void {
-  const from = lookOf(shape);
+function restyle(shape: Shape, patch: Partial<Look>, from = lookOf(shape)): void {
   const to = { ...from, ...patch };
   Object.assign(shape, to);
   record({ kind: 'style', item: shape, from, to });
@@ -1653,9 +2093,23 @@ function updateShapeBar(): void {
     return;
   }
   const key = `${shape.id}:${JSON.stringify(lookOf(shape))}`;
-  if (key !== barKey) {
+  // Открыто системное окно цветов: панель не перестраиваем, иначе оно закроется.
+  const picking = (document.activeElement as HTMLInputElement | null)?.type === 'color' && shapeBar.contains(document.activeElement);
+  if (key !== barKey && !picking) {
     barKey = key;
-    renderStyle(shapeBar, lookOf(shape), shape.kind, (patch) => restyle(shape, patch));
+    const base = lookOf(shape);
+    renderStyle(
+      shapeBar,
+      base,
+      shape.kind,
+      (patch) => restyle(shape, patch, base),
+      (patch) => {
+        Object.assign(shape, patch);
+        draw();
+      },
+    );
+    // Окно цветов закрыли: обновляем панель, чтобы она показала новый цвет.
+    shapeBar.querySelector('input[type=color]')?.addEventListener('blur', () => setTimeout(updateShapeBar));
   }
   // Над фигурой по центру; не помещается сверху - под ней; не выходит за края окна.
   const b = boundsOf(shape);
@@ -1675,6 +2129,7 @@ shapesBox.addEventListener('click', (e) => {
 canvas.addEventListener('pointerdown', (e) => {
   const p = pointOf(e);
   toggleBox(false);
+  toggleColors(false);
   // Правая кнопка мыши - лазер, каким бы инструментом ни рисовали: зажал и показываешь.
   if (e.button === 2) {
     e.preventDefault();
@@ -1770,7 +2225,7 @@ canvas.addEventListener('pointerdown', (e) => {
     eraseTo(p);
     return;
   }
-  current = { id: newId(), color, points: [p] };
+  current = { id: newId(), color, ...(chalkWidth !== CHALK_WIDTH ? { w: chalkWidth } : {}), points: [p] };
   liveSent = 0;
   sendLiveSoon();
   strokes.push(current);
@@ -1921,7 +2376,16 @@ function finish(): void {
   if (changed) save();
 }
 
+// Где моя мышь на доске - другому, даже когда ничего не рисую.
+canvas.addEventListener('pointermove', (e) => {
+  cursorAt = pointOf(e);
+  cursorAway = false;
+  sendCursorSoon();
+});
+
 canvas.addEventListener('pointerleave', () => {
+  cursorAway = true;
+  sendCursorSoon();
   eraserRing = null;
   if (tool === 'eraser') draw();
 });
@@ -1983,6 +2447,7 @@ palette.addEventListener('click', (e) => {
   if (button.id === 'notebook') return toggleNotebook();
   // Ящик открывается своим обработчиком и сам не меняет инструмент.
   if (button.id === 'shapes-box') return;
+  if (button.id === 'colors') return toggleColors();
   select(button);
 });
 
@@ -2045,6 +2510,11 @@ window.addEventListener('keydown', (e) => {
     deleteSelected();
     return;
   }
+  if (e.key === 'Escape' && !colorPanel.hidden) {
+    toggleColors(false);
+    colorsButton.focus();
+    return;
+  }
   if (e.key === 'Escape' && !shapesBox.hidden) {
     toggleBox(false);
     return;
@@ -2059,8 +2529,15 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
+  // [ и ] - мел тоньше и толще, по готовым толщинам.
+  if (e.key === '[' || e.key === 'х' || e.key === ']' || e.key === 'ъ') {
+    const up = e.key === ']' || e.key === 'ъ';
+    const next = up ? CHALK_SIZES.find((w) => w > chalkWidth) : [...CHALK_SIZES].reverse().find((w) => w < chalkWidth);
+    setChalkWidth(next ?? (up ? MAX_CHALK : MIN_CHALK));
+    return;
+  }
   if (key === 'l' || key === 'д') select(palette.querySelector<HTMLButtonElement>('[data-tool="laser"]')!);
-  // 1, 2, 3 - мелки по порядку; E - губка; V - указка; L - лазер; S - выделение.
+  // 1, 2, 3 - мелки по порядку, 4 - цвет из палитры; E - губка; V - указка; L - лазер; S - выделение.
   const chalk = palette.querySelectorAll<HTMLButtonElement>('[data-color]')[Number(e.key) - 1];
   if (chalk) select(chalk);
   if (key === 'e' || key === 'у') select(palette.querySelector<HTMLButtonElement>('[data-tool="eraser"]')!);
@@ -2246,6 +2723,11 @@ const link = connect(serverRoom, isGuest ? 'student' : 'teacher', {
   state: showLink,
   info(info) {
     linkInfo = info;
+    // Другой ушёл с доски или связь пропала: его указатель больше не показываем.
+    if (!info.others || (isGuest ? info.others.teacher : info.others.student) === 0) {
+      peer = null;
+      updatePeer();
+    }
     showLink(linkState);
   },
   live: receiveLive,

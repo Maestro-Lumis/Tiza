@@ -19,6 +19,13 @@
   --chalk-ink: #25231f;
   --chalk-red: #ae4f29;
   --chalk-blue: #33589e;
+  --chalk-scarlet: #c0392b;
+  --chalk-green: #2f7d4f;
+  --chalk-yellow: #a8800e;
+  --chalk-purple: #6b3fa0;
+  --chalk-pink: #b83f78;
+  --chalk-teal: #1f7f86;
+  --chalk-gray: #7d776b;
 }
 
 /* Тёмная тема в системе, если на сайте явно не выбрана светлая. */
@@ -38,6 +45,13 @@
     --chalk-ink: #ece8dc;
     --chalk-red: #e8a87c;
     --chalk-blue: #9db8ee;
+    --chalk-scarlet: #f28b82;
+    --chalk-green: #8fd19e;
+    --chalk-yellow: #f2d675;
+    --chalk-purple: #c3a6ee;
+    --chalk-pink: #f2a7c9;
+    --chalk-teal: #7fd3d6;
+    --chalk-gray: #b4b0a6;
   }
 }
 
@@ -57,6 +71,13 @@
   --chalk-ink: #ece8dc;
   --chalk-red: #e8a87c;
   --chalk-blue: #9db8ee;
+  --chalk-scarlet: #f28b82;
+  --chalk-green: #8fd19e;
+  --chalk-yellow: #f2d675;
+  --chalk-purple: #c3a6ee;
+  --chalk-pink: #f2a7c9;
+  --chalk-teal: #7fd3d6;
+  --chalk-gray: #b4b0a6;
 }
 
 html,

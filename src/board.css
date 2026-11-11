@@ -56,7 +56,8 @@ body {
 
 .chalk {
   width: 48px;
-  height: 14px;
+  /* Толщина мелка на полке следует за выбранной толщиной линии. */
+  height: var(--chalk-size, 14px);
   border-radius: 6px;
   background: var(--chalk);
 }
@@ -372,19 +373,49 @@ body {
 
 /* ---------- ящик с фигурами ---------- */
 
-/* Коробка на полке: деревянный ящик с тёмной щелью-ручкой. */
+/* Ящик на полке: открытый деревянный ящик, из него выглядывают треугольник, круг и кубик. */
 .box {
-  width: 44px;
-  height: 26px;
-  border-radius: 3px;
-  background:
-    linear-gradient(var(--wood-dark) 0 0) 50% 8px / 16px 3px no-repeat,
-    #b98a55;
-  box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.15);
+  width: 48px;
+  height: 34px;
+  background: none;
 }
 
-.box[aria-expanded='true'] {
+.box svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.box .tri {
+  fill: var(--chalk-blue);
+}
+
+.box .ball {
+  fill: var(--chalk-red);
+}
+
+.box .cube {
+  fill: var(--chalk-yellow);
+}
+
+.box .crate {
+  fill: #b98a55;
+  stroke: rgba(0, 0, 0, 0.25);
+}
+
+.box .rim {
+  fill: #a2743f;
+}
+
+.box .slot {
+  fill: var(--wood-dark);
+}
+
+.shelf .box[aria-pressed='true'],
+.shelf .box[aria-expanded='true'] {
   transform: translateY(-12px);
+  box-shadow: none;
+  filter: drop-shadow(0 9px 4px var(--shade));
 }
 
 /* Сам ящик над полкой: группы фигур с подписями и внизу - как рисовать новые фигуры. */
@@ -923,4 +954,383 @@ body {
 .notebook-panel select:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+
+/* ---------- где другой человек ---------- */
+
+/* Указатель ученика у учителя и учителя у ученика: стрелка его цвета и подпись. */
+.peer {
+  --peer: #3d7fd6;
+  position: fixed;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  pointer-events: none;
+  transition: opacity 0.3s;
+}
+
+.peer[data-role='teacher'] {
+  --peer: var(--accent);
+}
+
+.peer[hidden] {
+  display: none;
+}
+
+.peer-arrow {
+  width: 16px;
+  height: 20px;
+  fill: var(--peer);
+  stroke: var(--card);
+  stroke-width: 1.2;
+  stroke-linejoin: round;
+  transform: rotate(var(--turn, 0deg));
+  filter: drop-shadow(0 1px 2px var(--shade));
+}
+
+.peer-name {
+  margin-top: 14px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--peer);
+  color: var(--card);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Давно не двигал мышью или ушёл с доски: указатель бледнее. */
+.peer.is-idle {
+  opacity: 0.45;
+}
+
+/* За краем экрана: метка у края, стрелка показывает, где он; по клику - перейти к нему. */
+.peer.is-edge {
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 6px;
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow: 0 4px 14px var(--shade);
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.peer.is-edge .peer-arrow {
+  width: 12px;
+  height: 15px;
+}
+
+.peer.is-edge .peer-name {
+  margin-top: 0;
+}
+
+.peer.is-edge:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---------- все цвета мела ---------- */
+
+/* Цвета и толщина мела: кучка цветных мелков, как на полке, с крошкой и пылью. */
+.colors {
+  width: 58px;
+  height: 40px;
+  background: none;
+}
+
+.colors svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Мел матовый: без контура почти, лишь тонкая тень по краю. */
+.colors .stick {
+  stroke: rgba(0, 0, 0, 0.18);
+  stroke-width: 0.5;
+}
+
+/* Торец мелка светлее боков: видно, что палочка круглая. */
+.colors .face {
+  fill: rgba(255, 255, 255, 0.45);
+}
+
+.colors .dust {
+  fill: rgba(255, 255, 255, 0.12);
+}
+
+.colors .crumb {
+  fill: rgba(255, 255, 255, 0.55);
+}
+
+/* Цвета мела приглушённые, пастельные, как у настоящего. */
+.colors .red {
+  fill: #e07a6f;
+}
+
+.colors .yellow {
+  fill: #f2d47a;
+}
+
+.colors .green {
+  fill: #86c99a;
+}
+
+.colors .blue {
+  fill: #7fa6e3;
+}
+
+.shelf .colors[aria-expanded='true'] {
+  transform: translateY(-12px);
+  box-shadow: none;
+  filter: drop-shadow(0 9px 4px var(--shade));
+}
+
+/* Палитра над полкой: мелки с названиями, сетка оттенков, недавние и свой цвет. */
+.color-panel {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 12px);
+  transform: translateX(-50%);
+  width: min(460px, calc(100vw - 32px));
+  max-height: calc(100vh - 160px);
+  overflow-y: auto;
+  pointer-events: auto;
+  padding: 12px 14px 14px;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: 0 10px 30px var(--shade);
+}
+
+.color-label {
+  margin: 12px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.color-label:first-child {
+  margin-top: 0;
+}
+
+.color-chalks {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+}
+
+/* Коробка мелков: ряды круглых палочек, как цветные карандаши в коробке. */
+.color-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 6px 4px;
+  padding: 8px 8px 4px;
+  border-radius: 8px;
+  background: var(--paper);
+  box-shadow: inset 0 2px 6px var(--shade);
+}
+
+.color-name {
+  min-height: 1.3em;
+  margin: 0 0 6px;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.color-recent {
+  display: flex;
+  gap: 4px;
+}
+
+.color-recent .color-swatch {
+  width: 22px;
+}
+
+/*
+ * Мелок: палочка цвета --c. Тень по бокам и блик слева делают её круглой,
+ * кончик сверху светлее и скруглён - он стёрся о доску.
+ */
+.color-swatch {
+  position: relative;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 45% 45% 4px 4px / 22% 22% 4px 4px;
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.2), rgba(255, 255, 255, 0.16) 30%, rgba(255, 255, 255, 0) 55%, rgba(0, 0, 0, 0.22)),
+    var(--c);
+  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  transition: transform 0.12s;
+}
+
+/* Стёртый кончик: светлая шапочка сверху. */
+.color-swatch::before {
+  content: '';
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  top: 2px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+/* Наведёшь или выберешь - мелок выдвигается из коробки. */
+.color-swatch:hover {
+  transform: translateY(-4px);
+}
+
+.color-swatch[aria-pressed='true'] {
+  transform: translateY(-6px);
+  box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--accent);
+}
+
+.color-swatch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Свой цвет: кружок-радуга открывает системный выбор цвета. */
+.color-custom {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.color-custom input,
+.style-any input {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: conic-gradient(#c0392b, #a8800e, #2f7d4f, #1f7f86, #33589e, #6b3fa0, #b83f78, #c0392b);
+  cursor: pointer;
+}
+
+.color-custom input::-webkit-color-swatch-wrapper,
+.style-any input::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.color-custom input::-webkit-color-swatch,
+.style-any input::-webkit-color-swatch {
+  border: 0;
+  border-radius: 50%;
+  opacity: 0;
+}
+
+.color-panel[hidden] {
+  display: none;
+}
+
+.color-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 4px 6px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+/* Цвет показан мелком, как на полке. */
+.color-option::before {
+  content: '';
+  width: 44px;
+  height: 12px;
+  border-radius: 6px;
+  background: var(--chalk);
+}
+
+.color-option:hover {
+  background: var(--paper);
+}
+
+.color-option[aria-pressed='true'] {
+  background: var(--paper);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.color-option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ---------- толщина мела ---------- */
+
+.size-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Толщина показана кружком такого размера, какой след оставит мел. */
+.size-option {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  cursor: pointer;
+}
+
+.size-option::after {
+  content: '';
+  width: var(--dot);
+  height: var(--dot);
+  border-radius: 50%;
+  background: var(--ink);
+}
+
+.size-option:hover {
+  background: var(--paper);
+}
+
+.size-option[aria-pressed='true'] {
+  background: var(--paper);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.size-option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.size-range {
+  flex: 1;
+  min-width: 0;
+  margin-left: 8px;
+  accent-color: var(--accent);
+}
+
+.size-value {
+  min-width: 28px;
+  text-align: right;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
 }
