@@ -412,3 +412,208 @@ li:hover .row-actions,
 .save-state[data-state='offline'] {
   color: var(--chalk-red);
 }
+
+/* ---------- вход и регистрация ---------- */
+
+.auth {
+  max-width: 380px;
+}
+
+/* Вкладки «Вход» и «Регистрация»: подчёркнута выбранная. */
+.auth-tabs {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.auth-tabs button {
+  margin-bottom: -1px;
+  padding: 8px 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  font: inherit;
+  font-size: 16px;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.auth-tabs button[aria-selected='true'] {
+  border-bottom-color: var(--accent);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.auth-note {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  font-size: 14px;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+}
+
+.auth-form label {
+  margin: 12px 0 6px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.auth-form label:first-child,
+.auth-form .hint:first-child {
+  margin-top: 0;
+}
+
+.auth-form input {
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  font: inherit;
+  color: var(--ink);
+}
+
+.auth-form button[type='submit'],
+.recovery button {
+  height: 40px;
+  margin-top: 18px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--ink);
+  color: var(--paper);
+  font: inherit;
+  cursor: pointer;
+}
+
+.auth-form button[type='submit']:disabled,
+.recovery button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.auth button:focus-visible,
+.auth input:focus-visible,
+.account button:focus-visible,
+.account input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.hint {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+/* Логин свободен - зелёным, занят - цветом ошибки. */
+.hint[data-state='ok'] {
+  color: #3f9b5f;
+}
+
+.hint[data-state='bad'] {
+  color: var(--accent);
+}
+
+/* Кнопка, которая выглядит как ссылка: «Забыли пароль?», «Выйти». */
+.link-button {
+  align-self: flex-start;
+  margin-top: 12px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.link-button:hover {
+  text-decoration: underline;
+}
+
+/* Поле-ловушка для ботов: на экране его нет, читалка его тоже пропускает. */
+.trap {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+/* ---------- ключ восстановления ---------- */
+
+.recovery h2 {
+  margin: 0 0 8px;
+  font-size: 20px;
+}
+
+.recovery p {
+  margin: 0 0 12px;
+  color: var(--ink-2);
+}
+
+.recovery-key {
+  padding: 14px;
+  border-radius: 8px;
+  background: var(--card);
+  border: 1px dashed var(--accent);
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 18px;
+  letter-spacing: 0.04em;
+  text-align: center;
+  color: var(--ink) !important;
+  user-select: all;
+}
+
+.recovery-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.recovery-actions button {
+  flex: 1;
+  margin-top: 0;
+  background: var(--card);
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 14px;
+}
+
+.recovery #recovery-done {
+  width: 100%;
+}
+
+/* ---------- учётная запись ---------- */
+
+.account-actions {
+  display: flex;
+  gap: 16px;
+}
+
+.account-actions .link-button {
+  margin-top: 0;
+}
+
+.account .auth-form {
+  max-width: 320px;
+  margin-top: 12px;
+}
+
+.account .save-state {
+  margin-top: 12px;
+}

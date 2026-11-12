@@ -8,7 +8,37 @@ import { createHash } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { applyOp, type BoardData, type Laser, type Live, type Op } from '../src/ops.ts';
-import { loadBoard, loadRoadmap, loadWorkspace, saveBoard, saveRoadmap, saveWorkspace, storeName } from './store.ts';
+import {
+  accountByKey,
+  createAccount,
+  deleteWorkspace,
+  isRevoked,
+  loadAccount,
+  loadBoard,
+  loadRoadmap,
+  loadWorkspace,
+  revokeKey,
+  saveBoard,
+  saveRoadmap,
+  saveWorkspace,
+  storeName,
+  updateAccount,
+  type Account,
+} from './store.ts';
+import {
+  checkPassword,
+  failed,
+  hashPassword,
+  Limiter,
+  lockedFor,
+  loginProblem,
+  newKey,
+  newRecovery,
+  normalizeLogin,
+  passwordProblem,
+  recoveryHash,
+  succeeded,
+} from './auth.ts';
 
 const PORT = Number(process.env.PORT ?? 8787);
 /** Сколько ждать после изменения, прежде чем писать в базу: подряд идущие правки сохраняются разом. */
@@ -98,7 +128,7 @@ function reply(res: ServerResponse, status: number, body = '', type = 'text/plai
   res.writeHead(status, {
     'content-type': type,
     'access-control-allow-origin': '*',
-    'access-control-allow-methods': 'GET, PUT',
+    'access-control-allow-methods': 'GET, PUT, POST',
     'access-control-allow-headers': 'content-type, authorization',
   });
   res.end(body);
@@ -146,10 +176,14 @@ async function roadmap(req: IncomingMessage, res: ServerResponse, id: string): P
 /** Список учеников - имена, темы и ключи, ему хватит и мегабайта. */
 const MAX_WORKSPACE = 1024 * 1024;
 
+const workspaceId = (key: string) => hash(`workspace:${key}`);
+
 async function workspace(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const key = req.headers.authorization?.replace(/^Bearer /, '') ?? '';
   if (!ROOM.test(key)) return reply(res, 403, 'Нет доступа');
-  const id = hash(`workspace:${key}`);
+  const id = workspaceId(key);
+  // Пароль сменили: старый ключ на этом устройстве больше не работает, надо войти заново.
+  if (await isRevoked(id)) return reply(res, 401, 'Войдите заново');
   if (req.method === 'GET') {
     const stored = await loadWorkspace(id);
     return stored ? reply(res, 200, stored, 'application/json') : reply(res, 404, 'Списка ещё нет');
@@ -166,6 +200,134 @@ async function workspace(req: IncomingMessage, res: ServerResponse): Promise<voi
   reply(res, 204);
 }
 
+/* ---------- вход и регистрация ---------- */
+// Учитель входит логином и паролем и получает ключ к своему списку учеников.
+// Почту не храним: забытый пароль сбрасывается ключом восстановления.
+
+const json = (res: ServerResponse, status: number, body: object) => reply(res, status, JSON.stringify(body), 'application/json');
+const problem = (res: ServerResponse, status: number, error: string) => json(res, status, { error });
+
+/** Адрес того, кто спрашивает. Хостинг стоит перед сервером, поэтому настоящий адрес - в заголовке. */
+function clientIp(req: IncomingMessage): string {
+  const forwarded = String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim();
+  return forwarded || req.socket.remoteAddress || '?';
+}
+
+/**
+ * С одного адреса: 5 новых учётных записей в час (считаются только удачные регистрации,
+ * опечатки и занятые логины - нет), 30 попыток регистрации и 30 входов за 15 минут,
+ * 10 восстановлений в час.
+ */
+const registerLimit = new Limiter(5, 60 * 60 * 1000);
+const registerTries = new Limiter(30, 15 * 60 * 1000);
+const loginLimit = new Limiter(30, 15 * 60 * 1000);
+const recoverLimit = new Limiter(10, 60 * 60 * 1000);
+const checkLimit = new Limiter(60, 60 * 1000);
+const SLOW = 'Слишком много попыток. Подождите немного и попробуйте снова.';
+
+/**
+ * Новый ключ к списку учеников: список переезжает под новый ключ, старый отзывается.
+ * Так после смены пароля все остальные устройства выходят из учётной записи.
+ */
+async function rotateKey(a: Account): Promise<string> {
+  const oldId = workspaceId(a.workspaceKey);
+  const key = newKey();
+  const data = await loadWorkspace(oldId);
+  if (data) await saveWorkspace(workspaceId(key), data);
+  a.workspaceKey = key;
+  await updateAccount(a);
+  await revokeKey(oldId);
+  if (data) await deleteWorkspace(oldId);
+  return key;
+}
+
+async function auth(req: IncomingMessage, res: ServerResponse, action: string): Promise<void> {
+  const ip = clientIp(req);
+  if (action === 'available' && req.method === 'GET') {
+    if (!checkLimit.allow(ip)) return problem(res, 429, SLOW);
+    const login = normalizeLogin(new URL(req.url ?? '/', 'http://localhost').searchParams.get('login'));
+    if (loginProblem(login)) return json(res, 200, { free: false });
+    return json(res, 200, { free: !(await loadAccount(login)) });
+  }
+  if (req.method !== 'POST') return reply(res, 405);
+  const raw = await readBody(req, 4096);
+  let body: Record<string, unknown>;
+  try {
+    body = JSON.parse(raw ?? '');
+  } catch {
+    return problem(res, 400, 'Непонятный запрос.');
+  }
+  const login = normalizeLogin(body.login);
+
+  if (action === 'register') {
+    // Поле-ловушка: человек его не видит и не заполняет, а бот заполняет все поля подряд.
+    if (body.website) return problem(res, 400, 'Не получилось зарегистрироваться.');
+    if (registerLimit.full(ip) || !registerTries.allow(ip)) return problem(res, 429, SLOW);
+    const bad = loginProblem(login) ?? passwordProblem(body.password);
+    if (bad) return problem(res, 400, bad);
+    if (await loadAccount(login)) return problem(res, 409, 'Такой логин уже занят.');
+    // Ключ из браузера - список учеников, который у учителя уже есть: он переходит в учётную запись.
+    // Чужой (уже привязанный) или отозванный ключ не берём.
+    const own = typeof body.key === 'string' && ROOM.test(body.key) ? body.key : null;
+    const usable = own && !(await accountByKey(own)) && !(await isRevoked(workspaceId(own)));
+    const recovery = newRecovery();
+    const a: Account = {
+      login,
+      passHash: await hashPassword(body.password as string),
+      recoveryHash: recoveryHash(recovery),
+      workspaceKey: usable ? own : newKey(),
+    };
+    if (!(await createAccount(a))) return problem(res, 409, 'Такой логин уже занят.');
+    registerLimit.count(ip);
+    return json(res, 200, { login, key: a.workspaceKey, recovery });
+  }
+
+  if (action === 'login') {
+    if (!loginLimit.allow(ip)) return problem(res, 429, SLOW);
+    const wait = lockedFor(login);
+    if (wait) return problem(res, 429, `Слишком много неверных паролей. Попробуйте через ${Math.ceil(wait / 60)} мин.`);
+    const a = await loadAccount(login);
+    if (!a || typeof body.password !== 'string' || !(await checkPassword(body.password, a.passHash))) {
+      failed(login);
+      return problem(res, 401, 'Неверный логин или пароль.');
+    }
+    succeeded(login);
+    return json(res, 200, { login, key: a.workspaceKey });
+  }
+
+  if (action === 'recover') {
+    if (!recoverLimit.allow(ip)) return problem(res, 429, SLOW);
+    const bad = passwordProblem(body.password);
+    if (bad) return problem(res, 400, bad);
+    const a = await loadAccount(login);
+    if (!a || recoveryHash(body.recovery) !== a.recoveryHash) return problem(res, 401, 'Неверный логин или ключ восстановления.');
+    // Ключ восстановления одноразовый: использовали - выдаём новый.
+    const recovery = newRecovery();
+    a.passHash = await hashPassword(body.password as string);
+    a.recoveryHash = recoveryHash(recovery);
+    const key = await rotateKey(a);
+    return json(res, 200, { login, key, recovery });
+  }
+
+  if (action === 'password') {
+    if (!loginLimit.allow(ip)) return problem(res, 429, SLOW);
+    const wait = lockedFor(login);
+    if (wait) return problem(res, 429, `Слишком много неверных паролей. Попробуйте через ${Math.ceil(wait / 60)} мин.`);
+    const bad = passwordProblem(body.newPassword);
+    if (bad) return problem(res, 400, bad);
+    const a = await loadAccount(login);
+    if (!a || typeof body.password !== 'string' || !(await checkPassword(body.password, a.passHash))) {
+      failed(login);
+      return problem(res, 401, 'Неверный текущий пароль.');
+    }
+    a.passHash = await hashPassword(body.newPassword as string);
+    const key = await rotateKey(a);
+    return json(res, 200, { login, key });
+  }
+
+  reply(res, 404);
+}
+
 // Обычный запрос по адресу сервера отвечает «работает» - так его проверит и хостинг.
 const http = createServer(async (req, res) => {
   if (req.method === 'OPTIONS') return reply(res, 204);
@@ -176,6 +338,15 @@ const http = createServer(async (req, res) => {
     } catch (e) {
       console.error('Ошибка дорожной карты:', e);
       reply(res, 500, 'Ошибка базы');
+    }
+    return;
+  }
+  if (path.startsWith('/auth/')) {
+    try {
+      await auth(req, res, path.slice('/auth/'.length));
+    } catch (e) {
+      console.error('Ошибка входа:', e);
+      problem(res, 500, 'Ошибка сервера. Попробуйте ещё раз.');
     }
     return;
   }

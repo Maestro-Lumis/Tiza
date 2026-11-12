@@ -4,10 +4,11 @@ import { hasServer, serverFetch } from './sync';
 /**
  * Список учеников учителя хранится и в браузере, и на сервере. В браузере - чтобы всё
  * открывалось сразу и без связи, на сервере - чтобы его можно было открыть в другом браузере.
- * Вход - секретный ключ учителя: он лежит в браузере, а в другой браузер попадает по ссылке входа.
- * Ключ в ссылке стоит после #, поэтому не уходит ни на сервер сайта, ни в его журналы.
+ * Доступ к списку - секретный ключ: учитель получает его, когда входит логином и паролем.
  */
 const KEY = 'tiza:key';
+/** Под каким логином вошли в этом браузере. */
+const LOGIN = 'tiza:login';
 /** Подряд идущие правки отправляем разом, через столько миллисекунд после последней. */
 const PUSH_DELAY = 800;
 
@@ -55,12 +56,21 @@ function stamp(): number {
 async function request(method: 'GET' | 'PUT', body?: string, keepalive = false): Promise<Response | null> {
   const key = teacherKey();
   if (!hasServer || !key) return null;
-  return serverFetch('/workspace', {
+  const res = await serverFetch('/workspace', {
     method,
     body,
     keepalive,
     headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
   });
+  // Пароль сменили на другом устройстве: этот ключ отозван, нужно войти заново.
+  if (res?.status === 401) signedOut();
+  return res;
+}
+
+/** Ключ отозван: выходим и ведём на главную, там спросят логин и пароль. */
+function signedOut(): void {
+  logout();
+  location.replace('./?out=1');
 }
 
 let timer: ReturnType<typeof setTimeout> | undefined;
@@ -125,32 +135,111 @@ export async function pull(): Promise<boolean> {
   return false;
 }
 
-/** Ссылка входа: открыть её в другом браузере - и там тот же список учеников. */
-export function loginLink(): string {
-  const link = new URL('./', location.href);
-  link.hash = `key=${teacherKey()}`;
-  return link.href;
+/* ---------- вход, регистрация, восстановление ---------- */
+
+/** Логин, под которым вошли в этом браузере; null - не входили. */
+export function currentLogin(): string | null {
+  try {
+    return localStorage.getItem(LOGIN);
+  } catch {
+    return null;
+  }
+}
+
+/** Ответ сервера: данные или текст ошибки, который можно показать учителю. */
+type AuthResult = { login?: string; key?: string; recovery?: string; error?: string };
+
+async function authPost(action: string, body: object): Promise<AuthResult> {
+  const res = await serverFetch(`/auth/${action}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res) return { error: 'Сервер не отвечает. Если он спал, подождите минуту и попробуйте снова.' };
+  try {
+    const data = (await res.json()) as AuthResult;
+    return res.ok ? data : { error: data.error ?? 'Не получилось. Попробуйте ещё раз.' };
+  } catch {
+    return { error: 'Сервер ответил непонятно. Попробуйте ещё раз.' };
+  }
 }
 
 /**
- * Пришли по ссылке входа: запоминаем ключ из неё и убираем его из адресной строки.
- * false - учитель передумал менять список в этом браузере.
+ * Вошли: запоминаем логин и ключ. Ключ другой, чем был в браузере, - это чужой или
+ * старый список: убираем его, и при сверке придёт список с сервера.
  */
-export function takeKeyFromLink(): boolean {
-  const key = new URLSearchParams(location.hash.slice(1)).get('key');
-  if (!key) return false;
-  history.replaceState(null, '', location.pathname + location.search);
-  if (!/^[A-Za-z0-9_-]{22}$/.test(key) || key === teacherKey()) return false;
-  const question = 'В этом браузере уже есть ученики. Заменить их списком из ссылки входа?';
-  if (loadStudents().length && !confirm(question)) return false;
+async function signIn(result: AuthResult): Promise<void> {
+  if (!result.key || !result.login) return;
   try {
-    localStorage.setItem(KEY, key);
-    // Список из ссылки главнее: при сверке возьмём серверный.
-    localStorage.setItem(STAMP_KEY, '0');
+    if (localStorage.getItem(KEY) !== result.key) {
+      replaceStudents([], 0);
+      localStorage.setItem(KEY, result.key);
+    }
+    localStorage.setItem(LOGIN, result.login);
   } catch {
-    return false;
+    // Хранилище недоступно: вход до перезагрузки.
   }
-  return true;
+  await pull();
+}
+
+/** Свободен ли логин; null - сервер не ответил. */
+export async function loginFree(login: string): Promise<boolean | null> {
+  const res = await serverFetch(`/auth/available?${new URLSearchParams({ login })}`);
+  if (!res?.ok) return null;
+  try {
+    return ((await res.json()) as { free: boolean }).free;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Регистрация. Ученики, которые уже есть в этом браузере, переходят в новую учётную запись:
+ * сервер привязывает к ней ключ браузера. website - поле-ловушка для ботов.
+ */
+export async function register(login: string, password: string, website: string): Promise<AuthResult> {
+  const result = await authPost('register', { login, password, website, key: teacherKey() });
+  if (!result.error) await signIn(result);
+  return result;
+}
+
+export async function login(login: string, password: string): Promise<AuthResult> {
+  const result = await authPost('login', { login, password });
+  if (!result.error) await signIn(result);
+  return result;
+}
+
+/** Забыли пароль: логин, ключ восстановления и новый пароль. Сервер выдаст новый ключ восстановления. */
+export async function recover(login: string, recovery: string, password: string): Promise<AuthResult> {
+  const result = await authPost('recover', { login, recovery, password });
+  if (!result.error) await signIn(result);
+  return result;
+}
+
+/** Смена пароля: остальные устройства выходят из учётной записи. */
+export async function changePassword(password: string, newPassword: string): Promise<AuthResult> {
+  const result = await authPost('password', { login: currentLogin(), password, newPassword });
+  if (!result.error) await signIn(result);
+  return result;
+}
+
+/**
+ * Выход: из браузера убирается всё, что относится к учителю, - ключ, логин, ученики
+ * и копии досок. Тема, цвета и толщина мела остаются: это настройки браузера, а не учителя.
+ */
+export function logout(): void {
+  clearTimeout(timer);
+  dirty = false;
+  try {
+    for (const k of [KEY, LOGIN, STAMP_KEY, 'tiza:students']) localStorage.removeItem(k);
+  } catch {
+    // Хранилище недоступно: и так ничего не сохранено.
+  }
+  try {
+    indexedDB.deleteDatabase('tiza');
+  } catch {
+    // Досок в браузере нет.
+  }
 }
 
 window.addEventListener(STUDENTS_CHANGED, pushLater);

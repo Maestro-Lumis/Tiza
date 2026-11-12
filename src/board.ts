@@ -5,7 +5,7 @@ import { readDocx, splitTasks } from './tasks';
 import { applyOp, LISTS, type BoardData, type Item, type Laser, type ListName, type Live, type Op, type Wipe } from './ops';
 import { chooseServer, chosenServer, connect, hasServer, probe, SERVERS, type LinkInfo, type LinkState } from './sync';
 import { readBoard, writeBoard } from './local';
-import { pull } from './account';
+import { currentLogin, pull } from './account';
 import {
   autoLayout,
   downloadNotebook,
@@ -93,6 +93,9 @@ const topicId = params.get('topic');
 const room = params.get('room');
 const isGuest = room !== null;
 const STORAGE_KEY = room ?? (studentId && topicId ? boardKey(studentId, topicId) : 'tiza:board');
+// Доска темы учителя без входа (закладка, чужой компьютер): сначала войти на главной.
+// Ученик по своей ссылке входит без логина, его это не касается.
+if (hasServer && !room && studentId && !currentLogin()) location.replace('./');
 // Учитель открыл доску темы в браузере, где списка учеников ещё нет (закладка, другой компьютер):
 // без списка не узнать ключ доски на сервере. Берём список с сервера и открываем доску заново.
 if (!room && studentId && topicId && !getStudent(studentId) && (await pull())) location.reload();

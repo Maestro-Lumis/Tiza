@@ -11,10 +11,12 @@ import {
   type TopicStatus,
 } from './students';
 import { hasServer, publishRoadmap, syncRoadmap, wakeServer } from './sync';
-import { pull } from './account';
+import { currentLogin, pull } from './account';
 import './theme';
 
 const studentId = new URLSearchParams(location.search).get('id') ?? '';
+// Ученики есть только у вошедшего учителя: без входа - на главную, там спросят логин и пароль.
+if (hasServer && !currentLogin()) location.replace('./');
 
 const title = document.querySelector<HTMLHeadingElement>('#title')!;
 const list = document.querySelector<HTMLOListElement>('#topics')!;
