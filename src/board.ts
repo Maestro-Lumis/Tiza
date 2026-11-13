@@ -24,10 +24,25 @@ import './theme';
 type Point = { x: number; y: number };
 /** w - толщина мела; у старых линий её нет, тогда обычная (3). */
 type Stroke = { id: string; color: string; w?: number; points: Point[] };
-type Tool = 'pen' | 'eraser' | 'pointer' | 'laser' | 'shape' | 'select';
+type Tool = 'pen' | 'eraser' | 'pointer' | 'laser' | 'shape' | 'select' | 'text';
 /** Карточка задания из Word. Высота считается по тексту при отрисовке. */
 /** s - масштаб: карточку можно увеличить или уменьшить целиком, вместе с текстом. */
-type Card = { id: string; x: number; y: number; w: number; h: number; s?: number; title: string; text: string; wipes?: Wipe[] };
+/** plain - надпись с доски: без листа и заголовка, цветом мела color. */
+type Card = {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  s?: number;
+  title: string;
+  text: string;
+  plain?: boolean;
+  color?: string;
+  wipes?: Wipe[];
+};
+/** Что меняется, когда надпись переписали: текст и ширина. */
+type Lettering = { text: string; w: number };
 /** Место и размер предмета, у карточки ещё и масштаб: так их запоминает история. */
 type Box = Rect & { s?: number; f?: PageFormat; n?: number };
 /** То, что можно двигать: картинка, карточка, фигура или рамка листа тетради. */
@@ -43,7 +58,9 @@ type Change =
   | { kind: 'moves'; moves: { image: Movable; from: Box; to: Box }[] }
   | { kind: 'erase'; removed: Stroke[]; added: Stroke[]; wipes: { item: Movable; wipe: Wipe }[] }
   // Сменили цвет, толщину, пунктир, заливку или доли фигуры.
-  | { kind: 'style'; item: Shape; from: Look; to: Look };
+  | { kind: 'style'; item: Shape; from: Look; to: Look }
+  // Переписали надпись.
+  | { kind: 'retext'; item: Card; from: Lettering; to: Lettering };
 /** Как нарисована фигура целиком: цвет мела и всё остальное. */
 type Look = { color: string; width: number; dash: boolean; fill: boolean; parts: number };
 
@@ -79,6 +96,11 @@ const CARD_LINE = 26;
 const TABLE_LINE = 22;
 const CELL_PAD = 8;
 const FONT = "system-ui, -apple-system, 'Segoe UI', sans-serif";
+/** Надписи: размер букв, высота строки и отступ вокруг текста при масштабе 1; самая узкая надпись. */
+const TEXT_SIZE = 24;
+const TEXT_LINE = 32;
+const TEXT_PAD = 6;
+const MIN_TEXT = 40;
 /** Сколько миллисекунд живёт след лазерной указки. */
 const LASER_LIFE = 900;
 /** Чья это доска и какой темы: board.html?student=andrey&topic=… */
@@ -232,6 +254,14 @@ let selected: Movable | null = null;
 let notebookOpen = false;
 /** Рамка выделения, которую тянем сейчас, и всё, что попало в выделенный участок. */
 let marquee: { start: Point; end: Point } | null = null;
+/**
+ * Поле ввода лежит поверх доски ровно там, где будет надпись, и того же размера букв.
+ * fresh - новая надпись, её ещё нет на доске; from - какой она была до правки.
+ * fixed - ширину надписи раньше сузили вручную: текст переносится по ней, а не растягивает строку.
+ */
+let editing: { card: Card; fresh: boolean; fixed: boolean; from: Lettering } | null = null;
+/** Куда кликнули инструментом «Текст»: поле откроется, когда кнопку отпустят. */
+let textAt: Point | null = null;
 let picked: { strokes: Stroke[]; images: BoardImage[]; cards: Card[]; shapes: Shape[] } | null = null;
 /**
  * След лазерной указки: точки доски со временем появления.
@@ -360,6 +390,17 @@ type CardLayout = {
  */
 function layoutCard(c: Card): CardLayout {
   const layout: CardLayout = { h: 0, texts: [], grid: [] };
+  if (c.plain) {
+    // Строку сдвигаем на половину просвета: так буквы стоят там же, где в поле ввода.
+    ctx.font = `${TEXT_SIZE}px ${FONT}`;
+    let y = c.y + TEXT_PAD + (TEXT_LINE - TEXT_SIZE) / 2;
+    for (const text of wrapText(c.text, c.w - TEXT_PAD * 2)) {
+      layout.texts.push({ x: c.x + TEXT_PAD, y, text, font: ctx.font });
+      y += TEXT_LINE;
+    }
+    layout.h = layout.texts.length * TEXT_LINE + TEXT_PAD * 2;
+    return layout;
+  }
   const left = c.x + CARD_PAD;
   const width = c.w - CARD_PAD * 2;
   const top = c.y + CARD_PAD + 26;
@@ -440,6 +481,8 @@ function drawCardSheet(c: Card): CardLayout {
   let layout!: CardLayout;
   inCard(c, (local) => {
     layout = layoutCard(local);
+    // У надписи листа нет: только буквы.
+    if (local.plain) return;
     ctx.fillStyle = cardColor;
     ctx.strokeStyle = lineColor;
     ctx.lineWidth = 1.5;
@@ -458,6 +501,15 @@ function drawCardText(c: Card, layout: CardLayout): void {
 }
 
 function drawCardLines(c: Card, layout: CardLayout): void {
+  if (c.plain) {
+    ctx.fillStyle = chalkColors[c.color ?? ''] ?? c.color ?? inkColor;
+    ctx.textBaseline = 'top';
+    for (const t of layout.texts) {
+      ctx.font = t.font;
+      ctx.fillText(t.text, t.x, t.y);
+    }
+    return;
+  }
   ctx.fillStyle = accentColor;
   ctx.font = `600 14px ${FONT}`;
   ctx.textBaseline = 'top';
@@ -645,6 +697,7 @@ function draw(): void {
   updateLedge();
   updateShapeBar();
   updatePeer();
+  if (editing) placeEditor();
 }
 
 /** Всё, что лежит на доске: картинки, карточки, фигуры и линии. Без выделения и лазера. */
@@ -657,6 +710,8 @@ function drawItems(extra: Shape | null): void {
     if (i.wipes?.length) strokeWipes(ctx, i, backgroundOf(i.id, img));
   }
   for (const c of cards) {
+    // Надпись, которую сейчас пишут, видна в поле ввода, а не на доске.
+    if (c === editing?.card) continue;
     const layout = drawCardSheet(c);
     withWipes(c, () => drawCardText(c, layout));
   }
@@ -959,6 +1014,7 @@ function updateCursor(at?: Point): void {
   else if (tool === 'eraser') canvas.style.cursor = 'none';
   else if (tool === 'laser') canvas.style.cursor = laserCursor();
   else if (tool === 'pen' || tool === 'shape' || tool === 'select') canvas.style.cursor = 'crosshair';
+  else if (tool === 'text') canvas.style.cursor = 'text';
   else if (dragging?.mode === 'resize' || (at && selected && contains(handleRect(selected), at))) canvas.style.cursor = 'nwse-resize';
   // Указка - лапка: схватить можно и предмет, и саму доску.
   else if (dragging) canvas.style.cursor = 'grabbing';
@@ -974,7 +1030,7 @@ function removeFrom<T>(list: T[], item: T): void {
 
 /** Применяет действие к доске; reverse = true делает обратное (для отмены). */
 function apply(change: Change, reverse = false): void {
-  if (change.kind === 'style') {
+  if (change.kind === 'style' || change.kind === 'retext') {
     Object.assign(change.item, reverse ? change.from : change.to);
     return;
   }
@@ -1031,6 +1087,9 @@ function listOf(m: Movable): ListName {
 function opsOf(change: Change, reverse = false): Op[] {
   if (change.kind === 'style') {
     return [{ type: 'style', list: 'shapes', id: change.item.id, style: reverse ? change.from : change.to }];
+  }
+  if (change.kind === 'retext') {
+    return [{ type: 'style', list: 'cards', id: change.item.id, style: reverse ? change.from : change.to }];
   }
   if (change.kind === 'move') {
     const m = change.image;
@@ -2127,12 +2186,145 @@ shapesBox.addEventListener('click', (e) => {
   if (button) chooseShape(button);
 });
 
+/* ---------- надписи ---------- */
+
+const editor = document.createElement('textarea');
+editor.className = 'text-editor';
+editor.hidden = true;
+editor.rows = 1;
+editor.setAttribute('aria-label', 'Надпись на доске');
+document.body.append(editor);
+
+/** Ширина надписи в одну строку на абзац, при масштабе 1. */
+function naturalWidth(text: string): number {
+  ctx.font = `${TEXT_SIZE}px ${FONT}`;
+  const widest = Math.max(TEXT_SIZE, ...text.split('\n').map((line) => ctx.measureText(line).width));
+  return Math.ceil(widest) + TEXT_PAD * 2 + 2;
+}
+
+/** Верхняя надпись под точкой доски. */
+function textAtPoint(p: Point): Card | null {
+  for (let i = cards.length - 1; i >= 0; i--) if (cards[i].plain && contains(cards[i], p)) return cards[i];
+  return null;
+}
+
+/** Новая надпись там, где кликнули, текущим мелом. Буквы на экране одного размера при любом масштабе. */
+function newText(p: Point): Card {
+  const s = Math.min(MAX_CARD_SCALE, Math.max(MIN_CARD_SCALE, 1 / camera.zoom));
+  return {
+    id: newId(),
+    x: p.x - TEXT_PAD * s,
+    y: p.y - (TEXT_PAD + TEXT_LINE / 2) * s,
+    w: 0,
+    h: 0,
+    s,
+    title: '',
+    text: '',
+    plain: true,
+    color,
+  };
+}
+
+function openEditor(card: Card, fresh: boolean): void {
+  if (editing) closeEditor();
+  const s = card.s ?? 1;
+  editing = {
+    card,
+    fresh,
+    fixed: !fresh && card.w / s < naturalWidth(card.text) - 1,
+    from: { text: card.text, w: card.w },
+  };
+  selected = null;
+  editor.value = card.text;
+  editor.hidden = false;
+  placeEditor();
+  editor.focus();
+  editor.setSelectionRange(editor.value.length, editor.value.length);
+  draw();
+}
+
+/** Ставит поле ввода на место надписи: за доской следит при сдвиге и масштабе. */
+function placeEditor(): void {
+  if (!editing) return;
+  const c = editing.card;
+  const k = (c.s ?? 1) * camera.zoom;
+  const r = canvas.getBoundingClientRect();
+  const width = editing.fixed ? c.w / (c.s ?? 1) : naturalWidth(editor.value) + TEXT_SIZE;
+  Object.assign(editor.style, {
+    left: `${r.left + c.x * camera.zoom + camera.x}px`,
+    top: `${r.top + c.y * camera.zoom + camera.y}px`,
+    width: `${width * k}px`,
+    padding: `${TEXT_PAD * k}px`,
+    fontSize: `${TEXT_SIZE * k}px`,
+    lineHeight: `${TEXT_LINE * k}px`,
+    color: chalkColors[c.color ?? ''] ?? c.color ?? inkColor,
+    whiteSpace: editing.fixed ? 'pre-wrap' : 'pre',
+  });
+  editor.style.height = '0';
+  editor.style.height = `${editor.scrollHeight}px`;
+}
+
+/** Дописали: новая надпись встаёт на доску, правка уходит в историю, пустая надпись пропадает. */
+function closeEditor(): void {
+  if (!editing) return;
+  const { card, fresh, fixed, from } = editing;
+  editing = null;
+  editor.hidden = true;
+  editor.blur();
+  const text = editor.value.replace(/\s+$/, '');
+  const w = fixed ? card.w : naturalWidth(text) * (card.s ?? 1);
+  if (fresh) {
+    if (text.trim()) {
+      Object.assign(card, { text, w });
+      cards.push(card);
+      record({ kind: 'add', strokes: [], cards: [card] });
+      save();
+    }
+  } else if (!cards.includes(card)) {
+    // Пока писали, надпись убрали с другой стороны: править уже нечего.
+  } else if (!text.trim()) {
+    removeFrom(cards, card);
+    record({ kind: 'remove', strokes: [], cards: [card] });
+    save();
+  } else if (text !== from.text || w !== from.w) {
+    const to = { text, w };
+    Object.assign(card, to);
+    record({ kind: 'retext', item: card, from, to });
+    save();
+  }
+  draw();
+}
+
+editor.addEventListener('input', placeEditor);
+editor.addEventListener('blur', () => closeEditor());
+editor.addEventListener('keydown', (e) => {
+  // Пока пишут, буквы не переключают инструменты доски, а Ctrl/⌘ + Z отменяет набранное в самом поле.
+  e.stopPropagation();
+  // Esc или Ctrl/⌘ + Enter - готово; просто Enter - новая строка.
+  if (e.key === 'Escape' || (e.key === 'Enter' && (e.metaKey || e.ctrlKey))) {
+    e.preventDefault();
+    closeEditor();
+  }
+});
+
+// Двойной клик указкой по надписи - переписать её.
+canvas.addEventListener('dblclick', (e) => {
+  if (tool !== 'pointer') return;
+  const hit = textAtPoint(pointOf(e));
+  if (hit) openEditor(hit, false);
+});
+
 /* ---------- мышь, палец, стилус ---------- */
 
 canvas.addEventListener('pointerdown', (e) => {
   const p = pointOf(e);
   toggleBox(false);
   toggleColors(false);
+  // Клик мимо поля ввода дописывает надпись; инструментом «Текст» этот клик больше ничего не делает.
+  if (editing) {
+    closeEditor();
+    if (tool === 'text' && e.button === 0) return;
+  }
   // Правая кнопка мыши - лазер, каким бы инструментом ни рисовали: зажал и показываешь.
   if (e.button === 2) {
     e.preventDefault();
@@ -2222,6 +2414,11 @@ canvas.addEventListener('pointerdown', (e) => {
     };
     return;
   }
+  if (tool === 'text') {
+    // Поле ввода открываем, когда кнопку отпустят: иначе фокус сразу уйдёт обратно на доску.
+    textAt = p;
+    return;
+  }
   if (tool === 'eraser') {
     erased = { removed: [], added: [], wipes: new Map() };
     eraserLast = null;
@@ -2274,7 +2471,7 @@ canvas.addEventListener('pointermove', (e) => {
       const s0 = from.s ?? 1;
       if (e.shiftKey) {
         // С Shift меняется только ширина: текст переносится по-новому, высота подстроится.
-        selected.w = Math.max(MIN_CARD * s0, from.w + dx);
+        selected.w = Math.max((selected.plain ? MIN_TEXT : MIN_CARD) * s0, from.w + dx);
       } else {
         // Без Shift карточка растёт или уменьшается целиком, вместе с текстом.
         // Уголок идёт за мышью вдоль диагонали карточки: широкая низкая карточка не раздувается от лёгкого движения вниз.
@@ -2361,6 +2558,11 @@ function finish(): void {
     if (!n) picked = null;
     showNotice(n ? `Выделено: ${n}. Delete - удалить, Esc - снять выделение.` : '');
     draw();
+  }
+  if (textAt) {
+    const hit = textAtPoint(textAt);
+    openEditor(hit ?? newText(textAt), !hit);
+    textAt = null;
   }
   current = null;
   erased = null;
@@ -2546,6 +2748,7 @@ window.addEventListener('keydown', (e) => {
   if (key === 'e' || key === 'у') select(palette.querySelector<HTMLButtonElement>('[data-tool="eraser"]')!);
   if (key === 'v' || key === 'м') select(palette.querySelector<HTMLButtonElement>('[data-tool="pointer"]')!);
   if (key === 's' || key === 'ы') select(palette.querySelector<HTMLButtonElement>('[data-tool="select"]')!);
+  if (key === 't' || key === 'е') select(palette.querySelector<HTMLButtonElement>('[data-tool="text"]')!);
 });
 
 window.addEventListener('keyup', (e) => {

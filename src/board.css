@@ -231,6 +231,7 @@ body {
 /* У лапки и лазера нет прямоугольного фона: тень рисуем по их форме. */
 .shelf .pointer[aria-pressed='true'],
 .shelf .laser[aria-pressed='true'],
+.shelf .lettering[aria-pressed='true'],
 .shelf .sponge[aria-pressed='true'] {
   box-shadow: none;
   filter: drop-shadow(0 9px 4px var(--shade));
@@ -1333,4 +1334,54 @@ body {
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   color: var(--ink-2);
+}
+
+/* Текст: буквы мелом и мигающая черта курсора. */
+.lettering {
+  width: 38px;
+  height: 30px;
+  background: none;
+}
+
+.lettering svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.lettering .letter {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.lettering .small {
+  stroke-width: 2.2;
+}
+
+.lettering .caret {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+/* Поле, в котором пишут надпись: прозрачное, поверх доски, рамка - пунктиром. */
+.text-editor {
+  position: fixed;
+  z-index: 5;
+  margin: 0;
+  border: 0;
+  outline: 1.5px dashed var(--accent);
+  outline-offset: 0;
+  border-radius: 4px;
+  background: transparent;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  overflow: hidden;
+  resize: none;
+  box-sizing: content-box;
+  caret-color: var(--accent);
 }
