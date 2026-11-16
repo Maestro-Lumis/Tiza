@@ -2599,12 +2599,31 @@ canvas.addEventListener('pointerup', finish);
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 canvas.addEventListener('pointercancel', finish);
 
+/** Один щелчок колеса мыши с Ctrl/⌘ меняет масштаб на 10%. */
+const WHEEL_STEP = 1.1;
+/** Щипок на тачпаде: насколько меняется масштаб от одного шага и самый большой шаг за раз. */
+const PINCH_SPEED = 0.006;
+const PINCH_MAX = 12;
+
+/**
+ * Во сколько раз изменить масштаб от одного события колеса.
+ * Колесо мыши присылает крупные шаги (около 100 за щелчок) - тогда ровно 10% за щелчок.
+ * Тачпад присылает много мелких шагов - тогда плавно, но не больше PINCH_MAX за раз,
+ * чтобы мышь с плавной прокруткой не разгоняла масштаб.
+ */
+function wheelZoom(e: WheelEvent): number {
+  if (!e.deltaY) return 1;
+  if (e.deltaMode !== 0 || Math.abs(e.deltaY) >= 50) return e.deltaY > 0 ? 1 / WHEEL_STEP : WHEEL_STEP;
+  const d = Math.max(-PINCH_MAX, Math.min(PINCH_MAX, e.deltaY));
+  return Math.exp(-d * PINCH_SPEED);
+}
+
 /** Колесо или два пальца на тачпаде двигают доску; с Ctrl/⌘ (или щипок) - масштаб. */
 canvas.addEventListener(
   'wheel',
   (e) => {
     e.preventDefault();
-    if (e.ctrlKey || e.metaKey) return zoomAt(Math.exp(-e.deltaY * 0.01), screenPoint(e));
+    if (e.ctrlKey || e.metaKey) return zoomAt(wheelZoom(e), screenPoint(e));
     camera.x -= e.deltaX;
     camera.y -= e.deltaY;
     draw();

@@ -89,6 +89,12 @@ export async function saveWorkspace(id: string, data: string): Promise<void> {
   });
 }
 
+/** Все списки учеников: для команд администратора. */
+export async function listWorkspaces(): Promise<{ id: string; data: string; updatedAt: number }[]> {
+  const rs = await db.execute('SELECT id, data, updated_at FROM workspaces ORDER BY updated_at DESC');
+  return rs.rows.map((r) => ({ id: String(r.id), data: String(r.data), updatedAt: Number(r.updated_at) }));
+}
+
 export async function deleteWorkspace(id: string): Promise<void> {
   await db.execute({ sql: 'DELETE FROM workspaces WHERE id = ?', args: [id] });
 }

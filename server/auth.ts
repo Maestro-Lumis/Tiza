@@ -49,6 +49,11 @@ export async function checkPassword(password: string, stored: string): Promise<b
   return timingSafeEqual(actual, expected);
 }
 
+/** Под каким id лежит список учеников: сам ключ на сервере не хранится, только его отпечаток. */
+export function workspaceId(key: string): string {
+  return createHash('sha256').update(`workspace:${key}`).digest('hex');
+}
+
 /** Ключ доступа к списку учеников: 16 случайных байт, 22 знака - как ключи досок. */
 export function newKey(): string {
   return randomBytes(16).toString('base64url');

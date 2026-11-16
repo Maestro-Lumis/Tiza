@@ -30,6 +30,7 @@ import {
   failed,
   hashPassword,
   Limiter,
+  workspaceId,
   lockedFor,
   loginProblem,
   newKey,
@@ -176,7 +177,6 @@ async function roadmap(req: IncomingMessage, res: ServerResponse, id: string): P
 /** Список учеников - имена, темы и ключи, ему хватит и мегабайта. */
 const MAX_WORKSPACE = 1024 * 1024;
 
-const workspaceId = (key: string) => hash(`workspace:${key}`);
 
 async function workspace(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const key = req.headers.authorization?.replace(/^Bearer /, '') ?? '';
