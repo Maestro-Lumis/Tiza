@@ -2314,6 +2314,126 @@ canvas.addEventListener('dblclick', (e) => {
   if (hit) openEditor(hit, false);
 });
 
+/* ---------- планшет: пальцы и стилус ---------- */
+
+/**
+ * Пальцы на экране: где каждый сейчас (в пикселях экрана).
+ * Один палец рисует выбранным инструментом, два - двигают и масштабируют доску.
+ */
+const fingers = new Map<number, Point>();
+/** Два пальца на доске: расстояние между ними и середина в прошлый раз. */
+let pinch: { dist: number; mid: Point } | null = null;
+/** Жест двумя пальцами закончился, но палец ещё на экране: пока его не уберут, он ничего не рисует. */
+let gestureLeft = false;
+/**
+ * Стилусом уже рисовали: дальше палец не рисует, а только двигает доску.
+ * Так ладонь, лежащая на экране, не оставляет следов.
+ */
+let penSeen = false;
+/** Прошлое касание для двойного тапа по надписи. */
+let lastTap: { t: number; p: Point } | null = null;
+/** Двойной тап: не дольше и не дальше этого. */
+const DOUBLE_TAP_TIME = 350;
+const DOUBLE_TAP_GAP = 24;
+
+function pinchOf(): { dist: number; mid: Point } {
+  const [a, b] = [...fingers.values()];
+  return { dist: Math.hypot(b.x - a.x, b.y - a.y), mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } };
+}
+
+/**
+ * Второй палец коснулся, пока первый уже начал действие: это был не рисунок, а жест.
+ * Начатую линию, фигуру или рамку выделения убираем; сдвиг и стирание сохраняем как есть.
+ */
+function dropAction(): void {
+  if (current) {
+    removeFrom(strokes, current);
+    // Ученик уже видел начало линии: пусть тоже забудет.
+    if (liveSent) sendOp({ type: 'remove', list: 'strokes', ids: [current.id] });
+    current = null;
+  }
+  draft = null;
+  marquee = null;
+  textAt = null;
+  finish();
+}
+
+// Слушаем раньше остальных (capture): жест забирает касание себе, и рисование его уже не видит.
+canvas.addEventListener(
+  'pointerdown',
+  (e) => {
+    if (e.pointerType === 'pen') penSeen = true;
+    if (e.pointerType !== 'touch') return;
+    fingers.set(e.pointerId, screenPoint(e));
+    if (fingers.size === 2) {
+      e.stopImmediatePropagation();
+      dropAction();
+      pinch = pinchOf();
+      return;
+    }
+    if (fingers.size > 2 || gestureLeft) {
+      e.stopImmediatePropagation();
+      return;
+    }
+    // После стилуса палец - как пробел с мышью: двигает доску.
+    if (penSeen) {
+      e.stopImmediatePropagation();
+      panning = screenPoint(e);
+    }
+  },
+  { capture: true },
+);
+
+canvas.addEventListener(
+  'pointermove',
+  (e) => {
+    if (e.pointerType !== 'touch' || !fingers.has(e.pointerId)) return;
+    fingers.set(e.pointerId, screenPoint(e));
+    if (pinch && fingers.size === 2) {
+      e.stopImmediatePropagation();
+      const now = pinchOf();
+      // Доска едет за серединой пальцев и растёт или сжимается вокруг неё.
+      camera.x += now.mid.x - pinch.mid.x;
+      camera.y += now.mid.y - pinch.mid.y;
+      if (pinch.dist > 0) zoomAt(now.dist / pinch.dist, now.mid);
+      else draw();
+      pinch = now;
+      return;
+    }
+    if (pinch || gestureLeft || fingers.size > 2) e.stopImmediatePropagation();
+  },
+  { capture: true },
+);
+
+function liftFinger(e: PointerEvent): void {
+  if (e.pointerType !== 'touch') return;
+  const wasGesture = pinch !== null || gestureLeft || fingers.size > 1;
+  fingers.delete(e.pointerId);
+  if (wasGesture) {
+    e.stopImmediatePropagation();
+    pinch = null;
+    gestureLeft = fingers.size > 0;
+    if (!fingers.size) finish();
+  }
+}
+canvas.addEventListener('pointerup', liftFinger, { capture: true });
+canvas.addEventListener('pointercancel', liftFinger, { capture: true });
+
+// Двойной тап пальцем или стилусом по надписи указкой - переписать её (dblclick на планшете приходит не всегда).
+canvas.addEventListener('pointerup', (e) => {
+  if (e.pointerType === 'mouse' || tool !== 'pointer') return;
+  const at = screenPoint(e);
+  const now = performance.now();
+  const twice = lastTap && now - lastTap.t < DOUBLE_TAP_TIME && Math.hypot(at.x - lastTap.p.x, at.y - lastTap.p.y) < DOUBLE_TAP_GAP;
+  lastTap = twice ? null : { t: now, p: at };
+  if (!twice) return;
+  const hit = textAtPoint(toBoard(at));
+  if (hit) openEditor(hit, false);
+});
+
+// Safari на iPad масштабирует всю страницу щипком сам; у доски масштаб свой.
+for (const type of ['gesturestart', 'gesturechange']) document.addEventListener(type, (e) => e.preventDefault());
+
 /* ---------- мышь, палец, стилус ---------- */
 
 canvas.addEventListener('pointerdown', (e) => {
@@ -2931,6 +3051,7 @@ const link = connect(serverRoom, isGuest ? 'student' : 'teacher', {
   op(op) {
     applyOp(live, op);
     if (op.type === 'add') forgetLive(op.items.map((i) => i.id));
+    else if (op.type === 'remove') forgetLive(op.ids);
     // Кто-то другой стёр выделенное: из выделения оно тоже уходит.
     if (picked) {
       picked = {

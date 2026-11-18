@@ -37,11 +37,16 @@ body {
   padding: 0;
   border: 0;
   cursor: pointer;
+  /* Двойной тап по кнопке не увеличивает страницу и не ждёт второго касания. */
+  touch-action: manipulation;
   transition: transform 0.15s, box-shadow 0.15s;
 }
 
-.shelf button:hover {
-  transform: translateY(-3px);
+/* Приподнимаем от наведения только мышью: на планшете «наведение» залипает после касания. */
+@media (hover: hover) {
+  .shelf button:hover {
+    transform: translateY(-3px);
+  }
 }
 
 .shelf button[aria-pressed='true'] {
@@ -1384,4 +1389,33 @@ body {
   resize: none;
   box-sizing: content-box;
   caret-color: var(--accent);
+}
+
+/* Планшет: долгое нажатие не открывает меню «скопировать / сохранить» и не выделяет подписи. */
+body {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* В полях ввода выделять текст можно: иначе Safari не даёт в них печатать. */
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Планшет в книжной ориентации: полка плотнее, чтобы всё влезло в ширину экрана. */
+@media (max-width: 900px) {
+  .shelf {
+    gap: 8px;
+  }
+
+  .shelf .group-start {
+    margin-left: 14px;
+  }
+
+  .chalk {
+    width: 40px;
+  }
 }
